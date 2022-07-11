@@ -43,6 +43,7 @@ byte degre[8] = {
 };
 
 // fonctions
+/* Affichage horloge */ 
 void displayTime(unsigned long heure, unsigned long minutes,unsigned long secondes) {
   lcd.setCursor(0,1);
     lcd.print("Time : ");
@@ -69,7 +70,6 @@ void displayTemperature(float temp) {
     lcd.setCursor(11,0);
     lcd.print(temp); 
 }
-
 
 void setup() {
   pinMode(11,INPUT);
