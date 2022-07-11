@@ -1,5 +1,3 @@
-//#include <VirtualWire.h>
-//#include <VirtualWire_Config.h>
 #include <LiquidCrystal.h>
 
 #include <Adafruit_MAX31856.h>
@@ -27,9 +25,7 @@ typedef struct {
 void setup() {
   pinMode(11,INPUT);
   pinMode(13,OUTPUT);
-  //vw_set_rx_pin(12);//connect the receiver data pin to pin 12
-  //vw_setup(4000);  // speed of data transfer in bps, maxes out at 10000
-  //vw_rx_start();       // Start the receiver PLL running
+  
   Serial.begin(9600);
   lcd.begin(16, 2);
   if (!maxthermo.begin()) {
@@ -69,33 +65,11 @@ void loop() {
   } else {
     Serial.println("Conversion not complete!");
   } 
-//  if (vw_get_message((byte *)&message, &taille_message)) // if we get a message that we recognize on this buffer...
-//  {
-//    Serial.println("------------------------------------");
-//    Serial.print("Profondeur:  ");Serial.print(message.profondeur);Serial.println(" cm");
-//    Serial.print("Volume:      ");Serial.print(message.volume);Serial.println(" litres");
-//    Serial.print("Valeur Sonde:");Serial.println(message.sonde);
-//    Serial.print("Etalon:      ");Serial.println(message.etalon);
-//    Serial.print("Tension:     ");Serial.print(message.tension);Serial.println(" v");
-//    lcd.clear();  
-//    lcd.setCursor(0,0);
-//    lcd.print("Profondeur: ");
-//    lcd.setCursor(12,0);
-//    lcd.print(message.profondeur); 
-//    lcd.setCursor(0,1);
-//    lcd.print("Volume: ");
-//    lcd.setCursor(8,1);
-//    lcd.print(message.volume);
-//   }
-//   else {
+
     lcd.clear();  
     lcd.setCursor(0,0);
     lcd.print("Temp.: ");
     lcd.setCursor(11,0);
     lcd.print(message.tension); 
-//    Serial.println("Pas de signaml recu");
-//    lcd.setCursor(15,1);
-//    lcd.print(".");
-//   }
    delay(250);
 }
