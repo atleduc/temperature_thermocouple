@@ -12,6 +12,10 @@ double pulse,frequency,capacitance,inductance;
 const int rs = 7, en = 8, d4 = 6, d5 = 5, d6 = 4, d7 = 3;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
+// déclaration de fonctions
+void displayTime(unsigned long heure, unsigned long minutes,unsigned long secondes);
+void displayTemperature(float temp);
+
 // Données des mesures
 typedef struct {
   int profondeur;  // profondeur mesurée
@@ -37,6 +41,34 @@ byte degre[8] = {
   0b00000,
   0b00000
 };
+
+// fonctions
+void displayTime(unsigned long heure, unsigned long minutes,unsigned long secondes) {
+  lcd.setCursor(0,1);
+    lcd.print("Time : ");
+    lcd.setCursor(8,1);
+    lcd.print(Num_heur); 
+    lcd.print(":");
+    if (Num_min < 10) {
+      lcd.print("0"); 
+    }
+    lcd.print(Num_min); 
+    lcd.print(":");
+    if (Num_sec < 10) {
+      lcd.print("0"); 
+    }
+    lcd.print(Num_sec);
+    return;
+}
+/* affichage de la température */
+void displayTemperature(float temp) {
+  lcd.clear();  
+    lcd.setCursor(0,0);
+    lcd.write((byte)0);
+    lcd.print("C : ");
+    lcd.setCursor(11,0);
+    lcd.print(temp); 
+}
 
 
 void setup() {
@@ -71,6 +103,8 @@ void setup() {
   maxthermo.setConversionMode(MAX31856_ONESHOT_NOWAIT);
 }
 
+
+
 void loop() {
   MyData message;
   maxthermo.triggerOneShot();
@@ -82,11 +116,9 @@ void loop() {
   Num_min= (Temps_ms/(TSec*60))%60;
   // Calcul des heures  
   Num_heur= (Temps_ms/(TSec*3600))%60;
-
   
   delay(250);
-  byte taille_message = sizeof(MyData);
-   
+  
   if (maxthermo.conversionComplete()) {
     message.tension = maxthermo.readThermocoupleTemperature();
     Serial.println(message.tension);  
@@ -94,28 +126,10 @@ void loop() {
     Serial.println("Conversion not complete!");
   } 
 // affichage température
-    lcd.clear();  
-    lcd.setCursor(0,0);
-    lcd.write((byte)0);
-    lcd.print("C : ");
-    lcd.setCursor(11,0);
-    lcd.print(message.tension); 
+  displayTemperature(message.tension);
     
 // affichage temps écoulé
-    lcd.setCursor(0,1);
-    lcd.print("Time : ");
-    lcd.setCursor(8,1);
-    lcd.print(Num_heur); 
-    lcd.print(":");
-    if (Num_min < 10) {
-      lcd.print("0"); 
-    }
-    lcd.print(Num_min); 
-    lcd.print(":");
-    if (Num_sec < 10) {
-      lcd.print("0"); 
-    }
-    lcd.print(Num_sec); 
+  displayTime(Num_heur, Num_min, Num_sec);
     
    delay(250);
 }
