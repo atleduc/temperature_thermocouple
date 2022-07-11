@@ -21,13 +21,33 @@ typedef struct {
   float tension;
 } MyData;
 
+// temps
+const unsigned long TSec=1000;
+unsigned long Num_ms, Num_sec,Num_min; 
+unsigned long Num_heur,Num_jour, Temps_ms;
+
+// affichage caratère spéciaux
+byte degre[8] = {
+  0b00100,
+  0b01010,
+  0b01010,
+  0b00100,
+  0b00000,
+  0b00000,
+  0b00000,
+  0b00000
+};
+
 
 void setup() {
   pinMode(11,INPUT);
   pinMode(13,OUTPUT);
   
   Serial.begin(9600);
+  //init LCD
   lcd.begin(16, 2);
+  lcd.createChar(0, degre);
+  
   if (!maxthermo.begin()) {
     Serial.println("Could not initialize thermocouple.");
     while (1) delay(10);
@@ -54,8 +74,16 @@ void setup() {
 void loop() {
   MyData message;
   maxthermo.triggerOneShot();
-  lcd.setCursor(15,1);
-  lcd.print("_");
+  // Lecture de l'horloge interne en ms
+  Temps_ms=millis();  // 2^32 secondes = 49.71 jours  
+  // Calcul des secondes  
+  Num_sec= (Temps_ms/TSec)%60;
+  // Calcul des minutes  
+  Num_min= (Temps_ms/(TSec*60))%60;
+  // Calcul des heures  
+  Num_heur= (Temps_ms/(TSec*3600))%60;
+
+  
   delay(250);
   byte taille_message = sizeof(MyData);
    
@@ -65,11 +93,29 @@ void loop() {
   } else {
     Serial.println("Conversion not complete!");
   } 
-
+// affichage température
     lcd.clear();  
     lcd.setCursor(0,0);
-    lcd.print("Temp.: ");
+    lcd.write((byte)0);
+    lcd.print("C : ");
     lcd.setCursor(11,0);
     lcd.print(message.tension); 
+    
+// affichage temps écoulé
+    lcd.setCursor(0,1);
+    lcd.print("Time : ");
+    lcd.setCursor(8,1);
+    lcd.print(Num_heur); 
+    lcd.print(":");
+    if (Num_min < 10) {
+      lcd.print("0"); 
+    }
+    lcd.print(Num_min); 
+    lcd.print(":");
+    if (Num_sec < 10) {
+      lcd.print("0"); 
+    }
+    lcd.print(Num_sec); 
+    
    delay(250);
 }
