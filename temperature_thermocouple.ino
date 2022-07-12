@@ -16,6 +16,7 @@ LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 void displayTime(unsigned long heure, unsigned long minutes,unsigned long secondes);
 void displayTemperature(float temp);
 void displayPhase(int phase, unsigned long duree);
+void displayFinCuisson();
 boolean marche(float consigne, float mesure); // chauffe on/off en fonction de la consigne et de la température mesurée
 float setConsigne(int phase);
 boolean changePhase(float temperature, int phase, float t);
@@ -32,7 +33,7 @@ typedef struct {
 typedef struct {
   int t0;
   int t1;
-  int pente;
+  unsigned long pente;
   int duree;
 } segment;
 
@@ -41,19 +42,19 @@ const unsigned long TSec=1000;
 unsigned long Num_ms, Num_sec,Num_min; 
 unsigned long Num_heur,Num_jour, Temps_ms;
 unsigned long t;
-
-// pentes de chauffe en °C / heure
-segment courbe[6] = {
-//  {  0, 100,  80,  0},   // 0 à 95° à 80°C/heure
-  {  0, 100,  1600,  0},   // 0 à 95° à 80°C/heure
-  {100, 100,   0, 1},   // 95 à 105° pendant 10 minutes
-  {100, 400,  1600, 0},    // 105 à 400° à 80°C/heure
-  {400, 400,   0, 1},    // 400° pendant 15 min 
-  {400, 1030,1500, 0},   // 400 à 1030° à 150°C/heure
+boolean cuissonTerminee;
+const int NB_PHASES =6;
+segment courbe[NB_PHASES] = {
+  // pentes de chauffe en °C / heure
+  {  0, 100,  80,  0},   // 0 à 95° à 80°C/heure 
+  {100, 100,   0, 10},   // 95 à 105° pendant 10 minutes
+  {100, 400,  80, 0},    // 105 à 400° à 80°C/heure
+  {400, 400,   0, 15},    // 400° pendant 15 min 
+  {400, 1030,150, 0},   // 400 à 1030° à 150°C/heure
   {1030,1030,  0, 30},  // 1030° pendant 30 min
 };
 int phaseEnCours;
-boolean initial;
+boolean initialisation;
 float temperatureInitiale = 0;
 float dureePhase;
 float tInit; // temps à l'ilit de la phase
@@ -151,7 +152,10 @@ void displayTemperature(float temp, float consigne) {
   lcd.setCursor(10,0);
   lcd.print(consigne); 
   lcd.write((byte)0);
-  
+}
+void displayFinCuisson() {
+  lcd.setCursor(0,1);
+  lcd.print("Cuisson terminee");
 }
 
 void setup() {
@@ -185,14 +189,15 @@ void setup() {
 
   maxthermo.setConversionMode(MAX31856_ONESHOT_NOWAIT);
   phaseEnCours=0;
-  initial=1;
+  cuissonTerminee=false;
+  initialisation=true;
   tInit=0;
 }
 
 
 
 void loop() {
-  
+  float consigne;
   MyData message;
   maxthermo.triggerOneShot();
   // Lecture de l'horloge interne en ms
@@ -212,8 +217,8 @@ void loop() {
   
   if (maxthermo.conversionComplete()) {
     message.tension = maxthermo.readThermocoupleTemperature();
-    if(initial==1) {
-      initial=0;
+    if(initialisation == true) {
+      initialisation = false;
       tInit = millis()/TSec;
       temperatureInitiale = message.tension;
       Serial.print("Temperature initiale: ");
@@ -224,24 +229,32 @@ void loop() {
     Serial.println("Conversion not complete!");
   } 
 
-  
-  
-// calcul de la consigne
-  float consigne = setConsigne(phaseEnCours, dureePhase);
+  if (cuissonTerminee == false) {
+    // calcul de la consigne
+    consigne = setConsigne(phaseEnCours, dureePhase);
 
-// affichage température
-  displayTemperature(message.tension, consigne);
-  if (Num_sec%10 >10) {
-    // affichage temps écoulé    
-    displayTime(Num_heur, Num_min, Num_sec);    
+    // affichage température
+    displayTemperature(message.tension, consigne);
+    if (Num_sec%10 > 5) {
+      // affichage temps écoulé    
+      displayTime(Num_heur, Num_min, Num_sec);    
+    } else {
+      // affichage temps écoulé
+      displayPhase(phaseEnCours,dureePhase);
+    }
+    Serial.print("température consigne: "); 
+    Serial.println(consigne); 
+    if(changePhase(consigne,phaseEnCours, dureePhase)) {
+      tInit=t;
+      phaseEnCours++;
+      if (phaseEnCours >= NB_PHASES) {
+        cuissonTerminee = true;
+      }
+    }
   } else {
-    displayPhase(phaseEnCours,dureePhase);
-  }
-  Serial.print("température consigne: "); 
-  Serial.println(consigne); 
-  if(changePhase(consigne,phaseEnCours, dureePhase)) {
-    tInit=t;
-    phaseEnCours++;
+    displayTemperature(message.tension, consigne);
+    displayFinCuisson();
+    consigne=0;
   }
    delay(250);
 }
