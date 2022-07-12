@@ -7,7 +7,7 @@
 Adafruit_MAX31856 maxthermo = Adafruit_MAX31856(10);
 // use hardware SPI, pass in the CS pin and using SPI1
 //Adafruit_MAX31856 maxthermo = Adafruit_MAX31856(10, &SPI1);
-double pulse,frequency,capacitance,inductance;
+
 
 const int rs = 7, en = 8, d4 = 6, d5 = 5, d6 = 4, d7 = 3;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
