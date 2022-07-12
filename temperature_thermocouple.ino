@@ -15,8 +15,10 @@ LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 // déclaration de fonctions
 void displayTime(unsigned long heure, unsigned long minutes,unsigned long secondes);
 void displayTemperature(float temp);
+void displayPhase(int phase, unsigned long duree);
 boolean marche(float consigne, float mesure); // chauffe on/off en fonction de la consigne et de la température mesurée
 float setConsigne(int phase);
+boolean changePhase(float temperature, int phase, float t);
 
 // Données des mesures
 typedef struct {
@@ -42,16 +44,19 @@ unsigned long t;
 
 // pentes de chauffe en °C / heure
 segment courbe[6] = {
-  {  0, 100,  80,  0},   // 0 à 95° à 80°C/heure
-  {100, 100,   0, 10},   // 95 à 105° pendant 10 minutes
-  {100, 400,  80, 0},    // 105 à 400° à 80°C/heure
-  {400, 400,   0, 15},    // 400° pendant 15 min 
-  {400, 1030,150, 0},   // 400 à 1030° à 150°C/heure
+//  {  0, 100,  80,  0},   // 0 à 95° à 80°C/heure
+  {  0, 100,  1600,  0},   // 0 à 95° à 80°C/heure
+  {100, 100,   0, 1},   // 95 à 105° pendant 10 minutes
+  {100, 400,  1600, 0},    // 105 à 400° à 80°C/heure
+  {400, 400,   0, 1},    // 400° pendant 15 min 
+  {400, 1030,1500, 0},   // 400 à 1030° à 150°C/heure
   {1030,1030,  0, 30},  // 1030° pendant 30 min
 };
 int phaseEnCours;
 boolean initial;
 float temperatureInitiale = 0;
+float dureePhase;
+float tInit; // temps à l'ilit de la phase
 // affichage caratère spéciaux
 byte degre[8] = {
   0b00100,
@@ -77,42 +82,76 @@ float setConsigne(int phase, float t) {
   if (courbe[phase].pente == 0) {
     return courbe[phase].t0;  
   } else {
-    // calcul de la consigne en fonction de la pente
-//    Serial.print("pente : "); 
-    //Serial.print(courbe[phase].pente*t/3600); 
     if(phase == 0) {
       return courbe[phase].pente*t/3600 + temperatureInitiale;
     }
     return courbe[phase].pente*t/3600 + courbe[phase].t0;
   }
-  
+}
+/** 
+ *  Calcul du changement de phase 
+ *  temperature : température de consigne
+ *  phase : index de la phase
+ *  t : durée écoulée de la phase
+ */
+boolean changePhase(float temperature, int phase, float t) {
+  if (courbe[phase].pente == 0) {
+    return courbe[phase].duree*60 < t;  
+  } else {
+    return courbe[phase].t1 < temperature;
+  }
 }
 /* Affichage horloge */ 
 void displayTime(unsigned long heure, unsigned long minutes,unsigned long secondes) {
   lcd.setCursor(0,1);
-    lcd.print("Time : ");
-    lcd.setCursor(8,1);
-    lcd.print(Num_heur); 
-    lcd.print(":");
-    if (Num_min < 10) {
-      lcd.print("0"); 
-    }
-    lcd.print(Num_min); 
-    lcd.print(":");
-    if (Num_sec < 10) {
-      lcd.print("0"); 
-    }
-    lcd.print(Num_sec);
-    return;
+  lcd.print("Time : ");
+  lcd.setCursor(8,1);
+  lcd.print(Num_heur); 
+  lcd.print(":");
+  if (Num_min < 10) {
+    lcd.print("0"); 
+  }
+  lcd.print(Num_min); 
+  lcd.print(":");
+  if (Num_sec < 10) {
+    lcd.print("0"); 
+  }
+  lcd.print(Num_sec);
+  return;
+}
+void displayPhase(int phase, unsigned long duree) {
+  lcd.setCursor(0,1);
+  lcd.print("Ph:");
+  lcd.print(phase); 
+  int Heure=(duree/3600)%60;
+  int Min=(duree/60)%60;
+  int Sec=duree%60;
+  lcd.setCursor(8,1);
+  lcd.print(Heure); 
+  lcd.print(":");
+  if (Min < 10) {
+    lcd.print("0"); 
+  }
+  lcd.print(Min); 
+  lcd.print(":");
+  if (Sec < 10) {
+    lcd.print("0"); 
+  }
+  lcd.print(Sec); 
+  lcd.print("s");
+  return;
+  
 }
 /* affichage de la température */
-void displayTemperature(float temp) {
+void displayTemperature(float temp, float consigne) {
   lcd.clear();  
-    lcd.setCursor(0,0);
-    lcd.write((byte)0);
-    lcd.print("C : ");
-    lcd.setCursor(11,0);
-    lcd.print(temp); 
+  lcd.setCursor(0,0);
+  lcd.print(temp); 
+  lcd.write((byte)0);
+  lcd.setCursor(10,0);
+  lcd.print(consigne); 
+  lcd.write((byte)0);
+  
 }
 
 void setup() {
@@ -147,6 +186,7 @@ void setup() {
   maxthermo.setConversionMode(MAX31856_ONESHOT_NOWAIT);
   phaseEnCours=0;
   initial=1;
+  tInit=0;
 }
 
 
@@ -159,6 +199,8 @@ void loop() {
   Temps_ms=millis();  // 2^32 secondes = 49.71 jours  
   // Calcul des secondes  
   t = Temps_ms/TSec;
+ 
+  dureePhase = t-tInit;
   Num_sec= t%60;
   
   // Calcul des minutes  
@@ -172,6 +214,7 @@ void loop() {
     message.tension = maxthermo.readThermocoupleTemperature();
     if(initial==1) {
       initial=0;
+      tInit = millis()/TSec;
       temperatureInitiale = message.tension;
       Serial.print("Temperature initiale: ");
       Serial.println(temperatureInitiale);
@@ -180,20 +223,25 @@ void loop() {
   } else {
     Serial.println("Conversion not complete!");
   } 
-// affichage température
-  displayTemperature(message.tension);
-    
-// affichage temps écoulé
-  displayTime(Num_heur, Num_min, Num_sec);
 
+  
+  
 // calcul de la consigne
-  float consigne = setConsigne(phaseEnCours, t);
-//  Serial.print("phase en cours: "); 
-//  Serial.println(phaseEnCours); 
-//  Serial.print("temps écoulé: "); 
-//  Serial.println(t); 
+  float consigne = setConsigne(phaseEnCours, dureePhase);
+
+// affichage température
+  displayTemperature(message.tension, consigne);
+  if (Num_sec%10 >10) {
+    // affichage temps écoulé    
+    displayTime(Num_heur, Num_min, Num_sec);    
+  } else {
+    displayPhase(phaseEnCours,dureePhase);
+  }
   Serial.print("température consigne: "); 
   Serial.println(consigne); 
-  
+  if(changePhase(consigne,phaseEnCours, dureePhase)) {
+    tInit=t;
+    phaseEnCours++;
+  }
    delay(250);
 }
