@@ -8,7 +8,7 @@ Adafruit_MAX31856 maxthermo = Adafruit_MAX31856(10);
 // use hardware SPI, pass in the CS pin and using SPI1
 //Adafruit_MAX31856 maxthermo = Adafruit_MAX31856(10, &SPI1);
 
-
+const int L1 = 2; // commande relais / LED
 const int rs = 7, en = 8, d4 = 6, d5 = 5, d6 = 4, d7 = 3;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
@@ -73,7 +73,7 @@ byte degre[8] = {
 // fonctions
 /* consigne température */
 boolean marche(float consigne, float mesure) {
-  return consigne < mesure;
+  return consigne > mesure;
 }
 /* calcul de la consigne
  *  phase index de la phase
@@ -161,7 +161,7 @@ void displayFinCuisson() {
 void setup() {
   pinMode(11,INPUT);
   pinMode(13,OUTPUT);
-  
+  pinMode(L1, OUTPUT); //L1 est une broche de sortie
   Serial.begin(9600);
   //init LCD
   lcd.begin(16, 2);
@@ -192,6 +192,10 @@ void setup() {
   cuissonTerminee=false;
   initialisation=true;
   tInit=0;
+  // test LED et relais
+  digitalWrite(L1, HIGH); //allumer L1
+  delay(250);
+  digitalWrite(L1, LOW); // éteindre L1
 }
 
 
@@ -243,10 +247,19 @@ void loop() {
       displayPhase(phaseEnCours,dureePhase);
     }
     Serial.print("température consigne: "); 
-    Serial.println(consigne); 
+    Serial.println(consigne);
+     
+    if(marche(consigne, message.tension) && cuissonTerminee == false) {
+      Serial.println("Chauffe ON");
+      digitalWrite(L1, HIGH); //allumer L1 
+    } else {
+      Serial.println("Chauffe OFF"); 
+      digitalWrite(L1, LOW); //éteindre L1
+    }
     if(changePhase(consigne,phaseEnCours, dureePhase)) {
       tInit=t;
       phaseEnCours++;
+      
       if (phaseEnCours >= NB_PHASES) {
         cuissonTerminee = true;
       }
