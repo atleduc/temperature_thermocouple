@@ -12,25 +12,6 @@ const int L1 = 2; // commande relais / LED
 const int rs = 7, en = 8, d4 = 6, d5 = 5, d6 = 4, d7 = 3;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
-// déclaration de fonctions
-void displayTime(unsigned long heure, unsigned long minutes,unsigned long secondes);
-void displayTemperature(float temp);
-void displayPhase(int phase, unsigned long duree);
-void displayFinCuisson();
-
-/* chauffe on/off en fonction de la consigne et de la température mesurée */
-boolean marche(float consigne, float mesure); 
-/* calcule la consigne de température */ 
-float calculeConsigne(int phase);
-/* détermine la phase de cuisson*/
-boolean changePhase(float temperature, int phase, float t);
-/*calcul de l'erreur */
-float calculeErreur(float consigne, float mesure);
-/* Correcteur Proportionnel */
-float correctionProportionnelle(float erreur);
-/* Correcteur Intégral */
-float correctionIntegral(float mesure);
-
 // Données des mesures
 typedef struct {
   float temperature;
@@ -53,31 +34,33 @@ boolean cuissonTerminee;
 const int NB_PHASES =6;
 
 // constantes de correction
-double Kproportionel = 2;
-float Kintegral = 0.00032;
+double Kproportionel = 6; //2;
+float Kintegral = 0.0006; // 0.00038
+double Kderive = 1000; // 10000
 double dt = 1; // période échantillonage = 1s
 double integration = 0.;
+double derivation = 0.;
+double erreur_n_1 =0;
 // constantes de système
 double amplitude = 1100; // puissance electrique
 int nbEchantillons = 120; // base de codage pour un valeur de consigne
-int pas = 1; //secondes
-int periode; // période d'une valeur de consigne
 
 
 segment courbe[NB_PHASES] = {
   // pentes de chauffe en °C / heure
   {  0, 100,  80,  0},   // 0 à 95° à 80°C/heure 
   {100, 100,   0, 10},   // 95 à 105° pendant 10 minutes
-//  {100, 400,  80, 0},    // 105 à 400° à 80°C/heure
-//  {400, 400,   0, 15},    // 400° pendant 15 min 
+  {100, 400,  80, 0},    // 105 à 400° à 80°C/heure
+  {400, 400,   0, 15},    // 400° pendant 15 min 
 //  {400, 1030,150, 0},   // 400 à 1030° à 150°C/heure
 //  {1030,1030,  0, 30},  // 1030° pendant 30 min
 };
 int phaseEnCours;
 boolean initialisation;
-float consigneInitiale = 50; // consigne initiale
+float consigneInitiale = 20; // consigne initiale
 float dureePhase;
 float tInit; // temps à l'ilit de la phase
+float tDecalePhase; //décalage de phase (température non atteinte)
 // affichage caratère spéciaux
 byte degre[8] = {
   0b00100,
@@ -89,7 +72,7 @@ byte degre[8] = {
   0b00000,
   0b00000
 };
-
+bool cycleTermine; // flag de fin d'une période 
 // fonctions
 /**
  *  calcul de l'erreur entre la consigne et la mesure
@@ -108,6 +91,9 @@ float correctionIntegral(float erreur, float integration) {
   return Kintegral * dt * erreur + integration;
 }
 
+float correctionDerive(float erreur_n_1, float erreur) {
+  return (erreur - erreur_n_1) * Kderive * dt / (nbEchantillons);
+}
 /* calcul de la consigne
  *  phase index de la phase
  *  t en seconde 
@@ -124,7 +110,13 @@ float calculeConsigne(int phase, float t) {
 }
 
 float calculRatio(float consigne, int amplitude, int nbEchantillon) {
-    return consigne*nbEchantillon/amplitude;
+  float ratio = consigne*nbEchantillon/amplitude;
+  if (ratio > nbEchantillons) {
+     return nbEchantillons;
+  } else if (ratio < 0) {
+    return 0;
+  }
+  return ratio;
 }
 /** 
  *  Calcul du changement de phase 
@@ -132,10 +124,14 @@ float calculRatio(float consigne, int amplitude, int nbEchantillon) {
  *  phase : index de la phase
  *  t : durée écoulée de la phase
  */
-boolean changePhase(float temperature, int phase, float t) {
+boolean changePhase(float temperature, int phase, float t, float &tDecalage) {
   if (courbe[phase].pente == 0) {
     // si on a pas atteint la temperature
-    return courbe[phase].duree*60 < t || temperature < courbe[phase].t0;  
+    if (temperature < courbe[phase].t0) {
+      tDecalage = t;
+      return false;
+    }
+    return t-tDecalage > courbe[phase].duree*60;  
   } else {
     return courbe[phase].t1 < temperature;
   }
@@ -190,10 +186,6 @@ void displayTemperature(float temp, float consigne) {
   lcd.setCursor(10,0);
   lcd.print(consigne); 
   lcd.write((byte)0);
-  Serial.print("consigne: "); 
-  Serial.println(consigne);
-  Serial.print("mesure: "); 
-  Serial.println(temp);
 }
 void displayFinCuisson() {
   lcd.setCursor(0,1);
@@ -225,11 +217,21 @@ float readTemp(Adafruit_MAX31856 &maxTh, float temp){
   return temp;
 }
 
-void setup() {
+void setup() {  
   pinMode(11,INPUT);
   pinMode(13,OUTPUT);
   pinMode(L1, OUTPUT); //L1 est une broche de sortie
   Serial.begin(9600);
+
+  // init du timer et des interruptions
+  cli(); // Désactive l'interruption globale
+  bitClear (TCCR2A, WGM20); // WGM20 = 0
+  bitClear (TCCR2A, WGM21); // WGM21 = 0 
+  TCCR2B = 0b00000110; // Clock / 256 soit 16 micro-s et WGM22 = 0
+  TIMSK2 = 0b00000001; // Interruption locale autorisée par TOIE2
+  sei(); // Active l'interruption global
+
+  
   //init LCD
   lcd.begin(16, 2);
   lcd.createChar(0, degre);
@@ -260,22 +262,51 @@ void setup() {
   initialisation=true;
   // temps initial
   tInit = millis()/TSec;
+  tDecalePhase = 0;
   // test LED et relais
   digitalWrite(L1, HIGH); //allumer L1
   delay(250);
   digitalWrite(L1, LOW); // éteindre L1
-  periode = nbEchantillons * pas;
+  cycleTermine=true; 
+  Serial.println("erreur;correctionP;Intégration;Derivation;commande;mesure");
 }
 
+byte varCompteurTimer = 0; // La variable compteur
+byte compteurEchantillon = 0;
+float ratio;
+
+
+// Routine d'interruption
+ISR(TIMER2_OVF_vect) {
+  TCNT2 = 256 - 250; // 250 x 16 µS = 4 ms
+  if (varCompteurTimer++ > 250) { // 500 * 4 ms = 1000 ms 
+    varCompteurTimer = 0;
+    
+    if (compteurEchantillon++ > nbEchantillons) {
+      compteurEchantillon = 0;
+      cycleTermine = true;
+    }
+    if(compteurEchantillon < ratio && cuissonTerminee == false) {
+        digitalWrite(L1, HIGH); //allumer L1 
+      } else {
+        digitalWrite(L1, LOW); //éteindre L1
+      }
+    Serial.print(".");
+//    Serial.print("compteurEchantillon ");
+//    Serial.println(compteurEchantillon);
+  }
+}
+ 
+/*****************************************
+ * Boucle principale
+ */
 void loop() {
   double consigne;
   double erreur;
   Mesure mesure;
   double CorrectionP;
   double commande;
-  float ratio;
-  bool tempOK;
-  
+ 
   // Lecture de l'horloge interne en ms
   Temps_ms=millis();  // 2^32 secondes = 49.71 jours  
   // Calcul des secondes  
@@ -290,12 +321,10 @@ void loop() {
   Num_heur= (Temps_ms/(TSec*3600))%60;
 
   mesure.temperature = readTemp(maxthermo, mesure.temperature);
-   
 
   if (cuissonTerminee == false) {
     // calcul de la consigne
     consigne = calculeConsigne(phaseEnCours, dureePhase);
-
     // affichage température
     displayTemperature(mesure.temperature, consigne);
     if (Num_sec%10 > 5) {
@@ -305,58 +334,41 @@ void loop() {
       // affichage temps écoulé
       displayPhase(phaseEnCours,dureePhase);
     }
-    
-    Serial.print("consigne: "); 
-    Serial.println(consigne);
-    //Serial.print(",");
-    //Serial.print("ambiante: "); 
-    //Serial.println(maxthermo.readCJTemperature());
-
-    // calcul de l'erreur + correction proportionnelle
-    erreur = calculeErreur(consigne,mesure.temperature);
-    Serial.print("erreur: ");
-    Serial.print(erreur);
-    CorrectionP = correctionProportionnelle(calculeErreur(consigne,mesure.temperature));
-    Serial.print("correctionP: ");
-    Serial.print(CorrectionP);
-    integration = correctionIntegral(erreur, integration); 
-    Serial.print("integration: ");
-    Serial.print(integration);
-    commande = integration + CorrectionP;
-    Serial.print("commande: ");
-    Serial.print(commande);
+     
     // calcul de la commande
-    ratio = calculRatio(commande, amplitude, nbEchantillons);
-    int current = 0;
-    Serial.print("ratio: ");
-    Serial.println(ratio);
-    
-    while (current++ < nbEchantillons && ratio >= 1) {
-      if(current < ratio && cuissonTerminee == false) {
-        digitalWrite(L1, HIGH); //allumer L1 
-      } else {
-        digitalWrite(L1, LOW); //éteindre L1
-      }
-      //displayTemperature(readTemp(maxthermo, mesure.temperature), consigne);
-      mesure.temperature = readTemp(maxthermo, mesure.temperature);
-      Serial.print(".");
-      displayTemperature(mesure.temperature, consigne);
-      delay(pas*1000-200);
+    if (cycleTermine == true) {
+      erreur = calculeErreur(consigne,mesure.temperature);
+      derivation = correctionDerive(erreur_n_1, erreur); 
+      erreur_n_1 = erreur;
+      CorrectionP = correctionProportionnelle(calculeErreur(consigne,mesure.temperature));   
+      integration = correctionIntegral(erreur, integration);
+      commande = integration + CorrectionP + derivation;
+      ratio = calculRatio(commande, amplitude, nbEchantillons); 
+      cycleTermine = false; 
+      Serial.println();
+      Serial.print(erreur);Serial.print(";");
+      Serial.print(CorrectionP);Serial.print(";");
+      Serial.print(integration);Serial.print(";");
+      Serial.print(derivation);Serial.print(";");
+      Serial.print(commande);Serial.print(";");
+      Serial.println(mesure.temperature);
     }
     
-    if(changePhase(consigne,phaseEnCours, dureePhase)) {
+    if(changePhase(consigne,phaseEnCours, dureePhase, tDecalePhase)) {
       tInit=t;
+      tDecalePhase=0;
       phaseEnCours++;
-      Serial.print("on y passe");
       if (phaseEnCours >= NB_PHASES) {
-        Serial.print("on y passe 2");
         cuissonTerminee = true;
       }
     }
   } else {
     displayTemperature(mesure.temperature, consigne);
     displayFinCuisson();
-    consigne=0;
+    //consigne=0;//
+    ratio=0;
+    Serial.print("Fin de cuisson ; Temperature: ");
+    Serial.println(mesure.temperature);
   }
-  delay(200);
+  
 }
