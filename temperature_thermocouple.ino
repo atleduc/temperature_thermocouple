@@ -1,6 +1,8 @@
 #include <LiquidCrystal.h>
 
 #include <Adafruit_MAX31856.h>
+#define CUISSON_FAIENCE 0;
+#define CUISSON_EMAIL 1;
 // Use software SPI: CS, DI, DO, CLK
 //Adafruit_MAX31856 maxthermo = Adafruit_MAX31856(10, 11, 12, 13);
 // use hardware SPI, just pass in the CS pin
@@ -13,9 +15,7 @@ const int rs = 7, en = 8, d4 = 6, d5 = 5, d6 = 4, d7 = 3;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
 // Données des mesures
-typedef struct {
-  float temperature;
-} Mesure;
+double Input;
 
 typedef struct {
   int t0;
@@ -31,36 +31,55 @@ unsigned long Num_heur,Num_jour, Temps_ms;
 unsigned long t;
 // indicateurs
 boolean cuissonTerminee;
+const int NB_TYPES = 2;
 const int NB_PHASES =6;
 
+
 // constantes de correction
-double Kproportionel = 6; //2;
-float Kintegral = 0.0006; // 0.00038
-double Kderive = 1000; // 10000
+double Kp = 7; //2;
+float Ki = 0.0006; // 0.00038
+double Kd = 10000; // 10000
 double dt = 1; // période échantillonage = 1s
 double integration = 0.;
 double derivation = 0.;
 double erreur_n_1 =0;
 // constantes de système
 double amplitude = 1100; // puissance electrique
-int nbEchantillons = 120; // base de codage pour un valeur de consigne
+int nbEchantillons = 120; // base de codage pour une valeur de consigne
 
-
-segment courbe[NB_PHASES] = {
-  // pentes de chauffe en °C / heure
-  {  0, 100,  80,  0},   // 0 à 95° à 80°C/heure 
-  {100, 100,   0, 10},   // 95 à 105° pendant 10 minutes
-  {100, 400,  80, 0},    // 105 à 400° à 80°C/heure
-  {400, 400,   0, 15},    // 400° pendant 15 min 
-//  {400, 1030,150, 0},   // 400 à 1030° à 150°C/heure
-//  {1030,1030,  0, 30},  // 1030° pendant 30 min
+// cuisson faïence 
+segment courbe[NB_TYPES][NB_PHASES] = {
+  {
+    // cuisson faience
+    // pentes de chauffe en °C / heure
+    {  0, 100, 100,  0},   // 0 à 100° à 100°C/heure 
+    {100, 100,   0, 10},   // 95 à 105° pendant 10 minutes
+    {100, 400, 100,  0},    // 105 à 400° à 100°C/heure
+    {400, 400,   0, 15},    // 400° pendant 15 min 
+    {400, 1030,150,  0},   // 400 à 1030° à 150°C/heure
+    {1030,1030,  0, 30},  // 1030° pendant 30 min 
+  },
+  {
+    // cuisson email
+    // pentes de chauffe en °C / heure
+    {  0, 100,  100,  0},   // 0 à 100° à 100°C/heure 
+    {105, 105,   0, 10},   // 95 à 105° pendant 10 minutes
+    {105, 400,  100, 0},    // 105 à 400° à 100°C/heure
+    {400, 400,   0, 15},    // 400° pendant 15 min 
+    {400, 1030, 150, 0},   // 400 à 1030° à 150°C/heure
+    {1030,1030,  0, 30},  // 1030° pendant 30 min 
+  },
+  
 };
-int phaseEnCours;
+
+int phaseEnCours, typeCuisson;
 boolean initialisation;
-float consigneInitiale = 20; // consigne initiale
+float consigneInitiale = 0; // consigne initiale
 float dureePhase;
 float tInit; // temps à l'ilit de la phase
 float tDecalePhase; //décalage de phase (température non atteinte)
+double consigne, erreur, CorrectionP, commande;
+
 // affichage caratère spéciaux
 byte degre[8] = {
   0b00100,
@@ -84,28 +103,29 @@ float calculeErreur(float consigne, float mesure) {
  * Correction statique PID
  */
 float correctionProportionnelle(float erreur) {
-  return erreur * Kproportionel;
+  return erreur * Kp;
 }
 
 float correctionIntegral(float erreur, float integration) {
-  return Kintegral * dt * erreur + integration;
+  return Ki * dt * nbEchantillons *  erreur + integration;
 }
 
 float correctionDerive(float erreur_n_1, float erreur) {
-  return (erreur - erreur_n_1) * Kderive * dt / (nbEchantillons);
+  return (erreur - erreur_n_1) * Kd * dt / (nbEchantillons);
 }
+
 /* calcul de la consigne
  *  phase index de la phase
  *  t en seconde 
 */
 float calculeConsigne(int phase, float t) {
-  if (courbe[phase].pente == 0) {
-    return courbe[phase].t0;  
+  if (courbe[typeCuisson][phase].pente == 0) {
+    return courbe[typeCuisson][phase].t0;  
   } else {
     if(phase == 0) {
-      return courbe[phase].pente*t/3600 + consigneInitiale;
+      return courbe[typeCuisson][phase].pente*t/3600 + consigneInitiale;
     }
-    return courbe[phase].pente*t/3600 + courbe[phase].t0;
+    return courbe[typeCuisson][phase].pente*t/3600 + courbe[typeCuisson][phase].t0;
   }
 }
 
@@ -124,16 +144,16 @@ float calculRatio(float consigne, int amplitude, int nbEchantillon) {
  *  phase : index de la phase
  *  t : durée écoulée de la phase
  */
-boolean changePhase(float temperature, int phase, float t, float &tDecalage) {
-  if (courbe[phase].pente == 0) {
+boolean changePhase(float consigne, float mesure, int phase, float t, float &tDecalage) {
+  if (courbe[typeCuisson][phase].pente == 0) {
     // si on a pas atteint la temperature
-    if (temperature < courbe[phase].t0) {
+    if (mesure*1.05 < courbe[typeCuisson][phase].t0) {
       tDecalage = t;
       return false;
     }
-    return t-tDecalage > courbe[phase].duree*60;  
+    return t-tDecalage > courbe[typeCuisson][phase].duree*60;  
   } else {
-    return courbe[phase].t1 < temperature;
+    return courbe[typeCuisson][phase].t1 < consigne;
   }
 }
 /* Affichage horloge */ 
@@ -257,7 +277,8 @@ void setup() {
   }
 
   maxthermo.setConversionMode(MAX31856_ONESHOT_NOWAIT);
-  phaseEnCours=0;
+  phaseEnCours = 0;
+  typeCuisson = CUISSON_FAIENCE; // faience
   cuissonTerminee=false;
   initialisation=true;
   // temps initial
@@ -268,7 +289,7 @@ void setup() {
   delay(250);
   digitalWrite(L1, LOW); // éteindre L1
   cycleTermine=true; 
-  Serial.println("erreur;correctionP;Intégration;Derivation;commande;mesure");
+  Serial.println("erreur;correctionP;Integration;Derivation;commande;mesure;ratio");
 }
 
 byte varCompteurTimer = 0; // La variable compteur
@@ -282,9 +303,21 @@ ISR(TIMER2_OVF_vect) {
   if (varCompteurTimer++ > 250) { // 500 * 4 ms = 1000 ms 
     varCompteurTimer = 0;
     
-    if (compteurEchantillon++ > nbEchantillons) {
+    if (compteurEchantillon++ >= nbEchantillons-1) {
       compteurEchantillon = 0;
-      cycleTermine = true;
+      cycleTermine = true; 
+      if (cuissonTerminee == false) {
+        // calcul de la consigne
+        consigne = calculeConsigne(phaseEnCours, dureePhase);
+        // calcul de la commande
+        erreur = calculeErreur(consigne,Input);
+        derivation = correctionDerive(erreur_n_1, erreur); 
+        erreur_n_1 = erreur;
+        CorrectionP = correctionProportionnelle(calculeErreur(consigne,Input));   
+        integration = correctionIntegral(erreur, integration);
+        commande = integration + CorrectionP + derivation;
+        ratio = calculRatio(commande, amplitude, nbEchantillons); 
+      }
     }
     if(compteurEchantillon < ratio && cuissonTerminee == false) {
         digitalWrite(L1, HIGH); //allumer L1 
@@ -301,12 +334,7 @@ ISR(TIMER2_OVF_vect) {
  * Boucle principale
  */
 void loop() {
-  double consigne;
-  double erreur;
-  Mesure mesure;
-  double CorrectionP;
-  double commande;
- 
+
   // Lecture de l'horloge interne en ms
   Temps_ms=millis();  // 2^32 secondes = 49.71 jours  
   // Calcul des secondes  
@@ -320,13 +348,16 @@ void loop() {
   // Calcul des heures  
   Num_heur= (Temps_ms/(TSec*3600))%60;
 
-  mesure.temperature = readTemp(maxthermo, mesure.temperature);
-
+  Input = readTemp(maxthermo, Input);
+  if (initialisation == true) {
+    consigneInitiale = Input;
+    initialisation = false;
+  }
   if (cuissonTerminee == false) {
     // calcul de la consigne
     consigne = calculeConsigne(phaseEnCours, dureePhase);
     // affichage température
-    displayTemperature(mesure.temperature, consigne);
+    displayTemperature(Input, consigne);
     if (Num_sec%10 > 5) {
       // affichage temps écoulé    
       displayTime(Num_heur, Num_min, Num_sec);    
@@ -337,13 +368,6 @@ void loop() {
      
     // calcul de la commande
     if (cycleTermine == true) {
-      erreur = calculeErreur(consigne,mesure.temperature);
-      derivation = correctionDerive(erreur_n_1, erreur); 
-      erreur_n_1 = erreur;
-      CorrectionP = correctionProportionnelle(calculeErreur(consigne,mesure.temperature));   
-      integration = correctionIntegral(erreur, integration);
-      commande = integration + CorrectionP + derivation;
-      ratio = calculRatio(commande, amplitude, nbEchantillons); 
       cycleTermine = false; 
       Serial.println();
       Serial.print(erreur);Serial.print(";");
@@ -351,10 +375,11 @@ void loop() {
       Serial.print(integration);Serial.print(";");
       Serial.print(derivation);Serial.print(";");
       Serial.print(commande);Serial.print(";");
-      Serial.println(mesure.temperature);
+      Serial.print(Input);Serial.print(";");
+      Serial.print(ratio);Serial.print(";");
     }
     
-    if(changePhase(consigne,phaseEnCours, dureePhase, tDecalePhase)) {
+    if(changePhase(consigne,Input, phaseEnCours, dureePhase, tDecalePhase)) {
       tInit=t;
       tDecalePhase=0;
       phaseEnCours++;
@@ -363,12 +388,12 @@ void loop() {
       }
     }
   } else {
-    displayTemperature(mesure.temperature, consigne);
+    displayTemperature(Input, consigne);
     displayFinCuisson();
     //consigne=0;//
     ratio=0;
     Serial.print("Fin de cuisson ; Temperature: ");
-    Serial.println(mesure.temperature);
+    Serial.println(Input);
   }
   
 }
