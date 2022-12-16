@@ -1,6 +1,6 @@
 #include <LiquidCrystal.h>
-
 #include <Adafruit_MAX31856.h>
+#include <avr/interrupt.h>
 #define CUISSON_FAIENCE 0;
 #define CUISSON_EMAIL 1;
 // Use software SPI: CS, DI, DO, CLK
@@ -159,7 +159,7 @@ boolean changePhase(float consigne, float mesure, int phase, float t, float &tDe
 /* Affichage horloge */ 
 void displayTime(unsigned long heure, unsigned long minutes,unsigned long secondes) {
   lcd.setCursor(0,1);
-  lcd.print("Time : ");
+  lcd.print("Total: ");
   lcd.setCursor(8,1);
   lcd.print(Num_heur); 
   lcd.print(":");
@@ -172,6 +172,7 @@ void displayTime(unsigned long heure, unsigned long minutes,unsigned long second
     lcd.print("0"); 
   }
   lcd.print(Num_sec);
+  lcd.print("s");
   return;
 }
 void displayPhase(int phase, unsigned long duree) {
@@ -199,12 +200,21 @@ void displayPhase(int phase, unsigned long duree) {
 }
 /* affichage de la température */
 void displayTemperature(float temp, float consigne) {
-  lcd.clear();  
+    
   lcd.setCursor(0,0);
   lcd.print(temp); 
   lcd.write((byte)0);
   lcd.setCursor(10,0);
   lcd.print(consigne); 
+  lcd.write((byte)0);
+}
+void displayGoal(float temp, float goal) {
+  lcd.setCursor(0,0);
+  lcd.print(temp); 
+  lcd.write((byte)0);
+  lcd.setCursor(8,0);
+  lcd.print("->"); 
+  lcd.print((int)goal); 
   lcd.write((byte)0);
 }
 void displayFinCuisson() {
@@ -236,11 +246,28 @@ float readTemp(Adafruit_MAX31856 &maxTh, float temp){
   }
   return temp;
 }
+/**
+ * Gestion du menu
+ */
+const int button1Pin = 9;
+// create two variables to store the current menu option
+// and the previous menu option
+int menuOption = 0;
+int prevMenuOption = 2;
+// 0 = non commencé
+// 1 = en cours
+// 2 = stoppé
+int etatCuisson = 0; 
+bool menuEnCours = 0; 
 
+
+ 
 void setup() {  
   pinMode(11,INPUT);
   pinMode(13,OUTPUT);
   pinMode(L1, OUTPUT); //L1 est une broche de sortie
+  pinMode(button1Pin, INPUT);
+
   Serial.begin(9600);
 
   // init du timer et des interruptions
@@ -255,6 +282,11 @@ void setup() {
   //init LCD
   lcd.begin(16, 2);
   lcd.createChar(0, degre);
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("1 = continuer");
+  lcd.setCursor(0, 1);
+  lcd.print("2 = stopper");
   
   if (!maxthermo.begin()) {
     Serial.println("Could not initialize thermocouple.");
@@ -295,15 +327,14 @@ void setup() {
 byte varCompteurTimer = 0; // La variable compteur
 byte compteurEchantillon = 0;
 float ratio;
-
-
+bool stopCuisson = false;
 // Routine d'interruption
 ISR(TIMER2_OVF_vect) {
   TCNT2 = 256 - 250; // 250 x 16 µS = 4 ms
   if (varCompteurTimer++ > 250) { // 500 * 4 ms = 1000 ms 
     varCompteurTimer = 0;
-    
-    if (compteurEchantillon++ >= nbEchantillons-1) {
+        
+    if (compteurEchantillon++ >= nbEchantillons-1 && etatCuisson == 1) {
       compteurEchantillon = 0;
       cycleTermine = true; 
       if (cuissonTerminee == false) {
@@ -319,14 +350,14 @@ ISR(TIMER2_OVF_vect) {
         ratio = calculRatio(commande, amplitude, nbEchantillons); 
       }
     }
-    if(compteurEchantillon < ratio && cuissonTerminee == false) {
+    if (etatCuisson == 1) {
+      if(compteurEchantillon < ratio && cuissonTerminee == false) {
         digitalWrite(L1, HIGH); //allumer L1 
       } else {
         digitalWrite(L1, LOW); //éteindre L1
       }
-    Serial.print(".");
-//    Serial.print("compteurEchantillon ");
-//    Serial.println(compteurEchantillon);
+      Serial.print(".");
+    }
   }
 }
  
@@ -334,7 +365,96 @@ ISR(TIMER2_OVF_vect) {
  * Boucle principale
  */
 void loop() {
+  // read the values of the push buttons
+  int button1State = digitalRead(button1Pin);
+  // check if the first button is pressed
+  
+  if (Serial.available() > 0) {
+    // read the character from the input console
+    char input = Serial.read();
 
+    // check the value of the character and update the menu option
+    if (input == 'm') {
+      menuOption = 0;
+    } else if (input == '1' && prevMenuOption == 0) {
+      menuOption = 1;
+    } else if (input == '2' && prevMenuOption == 0) {
+      menuOption = 2;
+      
+    }
+  }
+  // check if the menu option has changed
+  if (prevMenuOption != menuOption) {
+    menuEnCours = 1;
+    // update the LCD to show the selected option
+    lcd.clear();
+    if (etatCuisson == 0) {
+      if (menuOption == 0) {
+        lcd.setCursor(0, 0);
+        lcd.print("1:Commencer");
+        lcd.setCursor(0, 1);
+        lcd.print("2:Stopper");
+      } else if (menuOption == 1) {
+        lcd.setCursor(0, 0);
+        lcd.print("Depart cuisson");
+        stopCuisson = false;
+        etatCuisson = 1;
+        menuEnCours = 0;
+      } else {
+        lcd.setCursor(0, 0);
+        lcd.print("Stop cuisson");
+        cuissonTerminee = true;
+        stopCuisson = true;
+        menuEnCours = 0;
+      }  
+    } else if (etatCuisson == 1) {
+      if (menuOption == 0) {
+        lcd.setCursor(0, 0);
+        lcd.print("1:Continuer");
+        lcd.setCursor(0, 1);
+        lcd.print("2:Stopper");
+      } else if (menuOption == 1) {
+        lcd.setCursor(0, 0);
+        lcd.print("Reprise cuisson");
+        stopCuisson = false;
+        menuEnCours = 0;
+      } else {
+        lcd.setCursor(0, 0);
+        lcd.print("Stop cuisson");
+        cuissonTerminee = true;
+        etatCuisson = 2;
+        stopCuisson = true;
+        menuEnCours = 0;
+      }  
+    } else {
+      if (menuOption == 0) {
+        lcd.setCursor(0, 0);
+        lcd.print("1:Reprise cuisson");
+        lcd.setCursor(0, 1);
+        lcd.print("2:Stopper");
+      } else if (menuOption == 1) {
+        lcd.setCursor(0, 0);
+        lcd.print("Reprise cuisson");
+        stopCuisson = false;
+        cuissonTerminee = false;
+        etatCuisson = 1;
+        menuEnCours = 0;
+      } else {
+        lcd.setCursor(0, 0);
+        lcd.print("Stop cuisson");
+        cuissonTerminee = true;
+        stopCuisson = true;
+        menuEnCours = 0;
+        etatCuisson = 2;
+      }  
+    }
+    
+    
+    // update the previous menu option
+    prevMenuOption = menuOption;
+  }
+if (menuEnCours != 1) {
+ if (etatCuisson == 1 || etatCuisson == 2) {
   // Lecture de l'horloge interne en ms
   Temps_ms=millis();  // 2^32 secondes = 49.71 jours  
   // Calcul des secondes  
@@ -353,17 +473,19 @@ void loop() {
     consigneInitiale = Input;
     initialisation = false;
   }
-  if (cuissonTerminee == false) {
+  if (cuissonTerminee == false && stopCuisson == false) {
     // calcul de la consigne
     consigne = calculeConsigne(phaseEnCours, dureePhase);
     // affichage température
-    displayTemperature(Input, consigne);
+    lcd.clear();
     if (Num_sec%10 > 5) {
       // affichage temps écoulé    
-      displayTime(Num_heur, Num_min, Num_sec);    
+      displayTime(Num_heur, Num_min, Num_sec); 
+      displayTemperature(Input, consigne);   
     } else {
       // affichage temps écoulé
       displayPhase(phaseEnCours,dureePhase);
+      displayGoal(Input, courbe[typeCuisson][phaseEnCours].t1);
     }
      
     // calcul de la commande
@@ -390,10 +512,10 @@ void loop() {
   } else {
     displayTemperature(Input, consigne);
     displayFinCuisson();
-    //consigne=0;//
     ratio=0;
     Serial.print("Fin de cuisson ; Temperature: ");
     Serial.println(Input);
   }
-  
+ }
+}
 }
