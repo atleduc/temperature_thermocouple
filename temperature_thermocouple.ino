@@ -1,7 +1,7 @@
 #include <LiquidCrystal.h>
 #include <Adafruit_MAX31856.h>
 #include <avr/interrupt.h>
-#define CUISSON_FAIENCE 0;
+#define CUISSON_BISCUIT 0;
 #define CUISSON_EMAIL 1;
 // Use software SPI: CS, DI, DO, CLK
 Adafruit_MAX31856 maxthermo = Adafruit_MAX31856(2, 11, 12, 13);
@@ -11,38 +11,38 @@ Adafruit_MAX31856 maxthermo = Adafruit_MAX31856(2, 11, 12, 13);
 //Adafruit_MAX31856 maxthermo = Adafruit_MAX31856(10, &SPI1);
 
 // states
-const int INITIAL = 0;
-const int CUISSON_EN_COURS = 1;
-const int CUISSON_REFROISDISSEMENT = 2;
-const int CUISSON_TERMINEE = 3;
-const int CHOIX_TEMP = 4;
+const byte INITIAL = 0;
+const byte CUISSON_EN_COURS = 1;
+const byte CUISSON_REFROISDISSEMENT = 2;
+const byte CUISSON_TERMINEE = 3;
+const byte CHOIX_TEMP = 4;
 
 // menus
-const int MENU_INITIAL_1 = 0;
-const int MENU_INITIAL_2 = 1;
-const int MENU_INTERRUPTION_1 = 2;
-const int MENU_INTERRUPTION_2 = 3;
-const int TEMP_EMAIL = 4;
-const int MENU_REPRENDRE_1 = 5;
-const int MENU_REPRENDRE_2 = 6;
-const int EN_COURS = 7;
-const int STOP = 8;
-const int EN_COURS_EMAIL = 9;
-const int MENU_REPRENDRE_CF_1 = 10;
-const int MENU_REPRENDRE_CF_2 = 11;
-const int TEMP_BISCUIT = 12;
-const int LANCER_CUISSON_1 = 13;
-const int ARRET_CUISSON = 14;
-const int LANCER_CUISSON_EMAIL = 15;
-const int ARRET_CUISSON_EMAIL = 16;
+const byte MENU_INITIAL_1 = 0;
+const byte MENU_INITIAL_2 = 1;
+const byte MENU_INTERRUPTION_1 = 2;
+const byte MENU_INTERRUPTION_2 = 3;
+const byte TEMP_EMAIL = 4;
+const byte MENU_REPRENDRE_1 = 5;
+const byte MENU_REPRENDRE_2 = 6;
+const byte EN_COURS = 7;
+const byte STOP = 8;
+const byte EN_COURS_EMAIL = 9;
+const byte MENU_REPRENDRE_CF_1 = 10;
+const byte MENU_REPRENDRE_CF_2 = 11;
+const byte TEMP_BISCUIT = 12;
+const byte LANCER_CUISSON_1 = 13;
+const byte ARRET_CUISSON = 14;
+const byte LANCER_CUISSON_EMAIL = 15;
+const byte ARRET_CUISSON_EMAIL = 16;
 
-const int ACTION_MENU = 0;
-const int ACTION_UP = 1;
-const int ACTION_DOWN = 2;
-const int ACTION_SELECT = 3;
-const int NEXT_STATE = 4;
+const byte ACTION_MENU = 0;
+const byte ACTION_UP = 1;
+const byte ACTION_DOWN = 2;
+const byte ACTION_SELECT = 3;
+const byte NEXT_STATE = 4;
 
-int Menu[17][5];
+byte Menu[17][5];
 
 const char *MenuItems[][2] = {
   { ">Cuisson Biscuit", " Cuisson Email  " },  //0
@@ -64,8 +64,8 @@ const char *MenuItems[][2] = {
   { "ARRET CUISSON ?", "VALID = SELECT " }  //14
 };
 
-int ETAT_MENU;
-int STATE;
+byte ETAT_MENU;
+byte STATE;
 
 
 const int L1 = 3;  // commande relais / LED
@@ -105,6 +105,9 @@ double amplitude = 1100;   // puissance electrique
 int nbEchantillons = 120;  // base de codage pour une valeur de consigne
 
 // cuisson faïence
+int temperatureMax = 1030;
+const int DEFAULT_TEMPERATURE_MAX_EMAIL = 950;
+const int DEFAULT_TEMPERATURE_MAX_BISCUIT = 1030;
 segment courbe[NB_TYPES][NB_PHASES] = {
   {
     // cuisson faience
@@ -176,13 +179,22 @@ float correctionDerive(float erreur_n_1, float erreur) {
  *  t en seconde 
 */
 float calculeConsigne(int phase, float t) {
-  if (courbe[typeCuisson][phase].pente == 0) {
-    return courbe[typeCuisson][phase].t0;
+  float pente = courbe[typeCuisson][phase].pente;
+  float temperatureInitiale = courbe[typeCuisson][phase].t0;
+  if (pente == 0) {
+    if (temperatureInitiale <= temperatureMax) {
+      return temperatureInitiale;
+    }
+    return temperatureMax;
   } else {
     if (phase == 0) {
-      return courbe[typeCuisson][phase].pente * t / 3600 + consigneInitiale;
+      float consigne = pente * t / 3600 + consigneInitiale;
+      if (consigne <= temperatureMax) {
+        return consigne;
+      }
+      return temperatureMax;
     }
-    return courbe[typeCuisson][phase].pente * t / 3600 + courbe[typeCuisson][phase].t0;
+    return pente * t / 3600 + temperatureInitiale;
   }
 }
 
@@ -197,7 +209,7 @@ float calculRatio(float consigne, int amplitude, int nbEchantillon) {
 }
 /** 
  *  Calcul du changement de phase 
- *  temperature : température de consigne
+ *  consigne : température de consigne
  *  phase : index de la phase
  *  t : durée écoulée de la phase
  */
@@ -305,7 +317,6 @@ float readTemp(Adafruit_MAX31856 &maxTh, float temp) {
 /**
  * Gestion du menu
  */
-
 int adc_key_in = 0;
 #define btnRIGHT 0
 #define btnUP 1
@@ -334,8 +345,6 @@ int read_LCD_buttons() {
   if (adc_key_in < 555) return btnLEFT;
   if (adc_key_in < 790) return btnSELECT;
 
-
-
   return btnNONE;  // when all others fail, return this...
 }
 
@@ -344,8 +353,6 @@ int read_LCD_buttons() {
 int menuOption = 0;
 int prevMenuOption = 2;
 
-int consigneCustomTemp = 50;
-int STATE = INITIAL;
 bool menuEnCours = 0;
 
 void setup() {
@@ -501,7 +508,7 @@ void setup() {
 
   maxthermo.setConversionMode(MAX31856_ONESHOT_NOWAIT);
   phaseEnCours = 0;
-  typeCuisson = CUISSON_FAIENCE;  // faience
+  typeCuisson = CUISSON_BISCUIT;  // faience
   cuissonTerminee = false;
   initialisation = true;
   // temps initial
@@ -530,7 +537,7 @@ ISR(TIMER2_OVF_vect) {
       cycleTermine = true;
       if (STATE != CUISSON_REFROISDISSEMENT && STATE != CUISSON_TERMINEE) {
         if (STATE == EN_COURS_EMAIL) {
-          consigne = consigneCustomTemp;
+          consigne = calculeConsigne(phaseEnCours, dureePhase);
         } else {
           consigne = calculeConsigne(phaseEnCours, dureePhase);
         }
@@ -569,8 +576,7 @@ void checkMenu() {
 
   int button1State = read_LCD_buttons();
   bool menuChanged = false;
-  // check if the first button is pressed
-  Serial.println(button1State);
+  // check if the first button is pressed  
   switch (button1State)  // depending on which button was pushed, we perform an action
   {
     case btnRIGHT:
@@ -617,32 +623,38 @@ void checkMenu() {
     menuEnCours = 1;
     // update the LCD to show the selected option
     lcd.clear();
-
     switch (menuOption) {
       case ACTION_SELECT:
         ETAT_MENU = Menu[ETAT_MENU][ACTION_SELECT];
+        if (ETAT_MENU == TEMP_EMAIL) {
+          typeCuisson = CUISSON_EMAIL;
+          temperatureMax = DEFAULT_TEMPERATURE_MAX_EMAIL;
+        } else if (ETAT_MENU == TEMP_BISCUIT) {
+          typeCuisson = CUISSON_BISCUIT;
+          temperatureMax = DEFAULT_TEMPERATURE_MAX_BISCUIT;
+        }
         STATE = Menu[ETAT_MENU][NEXT_STATE];
         switch (STATE) {
           case CUISSON_EN_COURS:
             stopCuisson = false;
             cuissonTerminee = false;
-            tInit = millis()/TSec;
+            tInit = millis() / TSec;
             break;
           case CUISSON_REFROISDISSEMENT:
           case CUISSON_TERMINEE:
             stopCuisson = true;
             cuissonTerminee = true;
-            tInit = millis()/TSec;
+            tInit = millis() / TSec;
             break;
         }
-  
+
         break;
       case ACTION_DOWN:
         ETAT_MENU = Menu[ETAT_MENU][ACTION_DOWN];
         switch (ETAT_MENU) {
           case TEMP_BISCUIT:
           case TEMP_EMAIL:
-            if (consigneCustomTemp > 700) consigneCustomTemp -= 10;
+            if (temperatureMax > 700) temperatureMax -= 10;
         }
         break;
       case ACTION_UP:
@@ -650,7 +662,7 @@ void checkMenu() {
         switch (ETAT_MENU) {
           case TEMP_BISCUIT:
           case TEMP_EMAIL:
-            if (consigneCustomTemp < 1100) consigneCustomTemp += 10;
+            if (temperatureMax < 1100) temperatureMax += 10;
         }
         break;
       case ACTION_MENU:
@@ -667,7 +679,37 @@ void checkMenu() {
  */
 void loop() {
   checkMenu();
-  if (menuEnCours != 1) {
+  Serial.print(STATE);
+  Serial.print(";");
+  Serial.print(ETAT_MENU);
+  Serial.println(";");
+  
+  switch (STATE) {
+    case INITIAL:
+      menuEnCours = 1;    
+      lcd.print("-"); break;
+    case CUISSON_EN_COURS:
+      menuEnCours = 0;
+      //lcd.print("*"); break;
+    case CUISSON_REFROISDISSEMENT:
+      menuEnCours = 0;
+      lcd.print("_"); break;
+    case CUISSON_TERMINEE:
+      menuEnCours = 0;
+      lcd.print("x"); break;
+    case CHOIX_TEMP:
+      menuEnCours = 1;
+      lcd.print("C");
+      lcd.setCursor(4, 1);
+      lcd.print(temperatureMax); break;
+  }
+  if (menuEnCours) {
+    lcd.setCursor(0, 0);
+    lcd.print(MenuItems[ETAT_MENU][0]);
+    lcd.setCursor(0, 1);
+    lcd.print(MenuItems[ETAT_MENU][1]);
+    lcd.setCursor(15, 1);
+  } else {
     if (STATE == CUISSON_EN_COURS || STATE == STOP || STATE == EN_COURS_EMAIL || STATE == ARRET_CUISSON_EMAIL) {
       // Lecture de l'horloge interne en ms
       Temps_ms = millis();  // 2^32 secondes = 49.71 jours
@@ -692,7 +734,7 @@ void loop() {
         if (STATE == CUISSON_EN_COURS) {
           consigne = calculeConsigne(phaseEnCours, dureePhase);
         } else {
-          consigne = consigneCustomTemp;
+          consigne = temperatureMax;
         }
         // affichage température
         lcd.clear();
@@ -706,7 +748,7 @@ void loop() {
             displayPhase(phaseEnCours, dureePhase);
             displayGoal(Input, courbe[typeCuisson][phaseEnCours].t1);
           } else {
-            displayGoal(Input, consigneCustomTemp);
+            displayGoal(Input, temperatureMax);
             displayTime(Num_heur, Num_min, Num_sec);
           }
         }
