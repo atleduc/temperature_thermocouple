@@ -10,9 +10,66 @@ Adafruit_MAX31856 maxthermo = Adafruit_MAX31856(2, 11, 12, 13);
 // use hardware SPI, pass in the CS pin and using SPI1
 //Adafruit_MAX31856 maxthermo = Adafruit_MAX31856(10, &SPI1);
 
+// states
+const int INITIAL = 0;
+const int CUISSON_EN_COURS = 1;
+const int CUISSON_REFROISDISSEMENT = 2;
+const int CUISSON_TERMINEE = 3;
+const int CHOIX_TEMP = 4;
+
+// menus
+const int MENU_INITIAL_1 = 0;
+const int MENU_INITIAL_2 = 1;
+const int MENU_INTERRUPTION_1 = 2;
+const int MENU_INTERRUPTION_2 = 3;
+const int TEMP_EMAIL = 4;
+const int MENU_REPRENDRE_1 = 5;
+const int MENU_REPRENDRE_2 = 6;
+const int EN_COURS = 7;
+const int STOP = 8;
+const int EN_COURS_EMAIL = 9;
+const int MENU_REPRENDRE_CF_1 = 10;
+const int MENU_REPRENDRE_CF_2 = 11;
+const int TEMP_BISCUIT = 12;
+const int LANCER_CUISSON_1 = 13;
+const int ARRET_CUISSON = 14;
+const int LANCER_CUISSON_EMAIL = 15;
+const int ARRET_CUISSON_EMAIL = 16;
+
+const int ACTION_MENU = 0;
+const int ACTION_UP = 1;
+const int ACTION_DOWN = 2;
+const int ACTION_SELECT = 3;
+const int NEXT_STATE = 4;
+
+int Menu[17][5];
+
+const char *MenuItems[][2] = {
+  { ">Cuisson Biscuit", " Cuisson Email  " },  //0
+  { " Cuisson Biscuit", ">Cuisson Email  " },
+  { ">Continuer      ", " Stopper        " },
+  { " Continuer      ", ">Stopper        " },
+  { " Temp Email: ", "+-" },
+  { ">Reprendre      ", " Stopper        " },  //5
+  { " Reprendre      ", ">Stopper        " },
+  { " CUISSON       ", " EN COURS        " },
+  { " CUISSON       ", " STOPPEE       " },
+  { "CUISSON EMAIL  ", "En coursM11     " },
+  { ">CUISSON EMAIL  ", "Stopper M12     " },  //10
+  { " CUISSON EMAIL", ">Stopper  M12     " },
+  { "Temp Biscuit   ", "+-" },
+  { "DEPART CUISSON ?", "VALID = SELECT " },
+  { "ARRET CUISSON ?", "VALID = SELECT " },  //14
+  { "DEPART CUISSON ?", "VALID = SELECT " },
+  { "ARRET CUISSON ?", "VALID = SELECT " }  //14
+};
+
+int ETAT_MENU;
+int STATE;
+
+
 const int L1 = 3;  // commande relais / LED
-//const int rs = 8, en = 9, d4 = 4, d5 = 5, d6 = 6, d7 = 7;
-//LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 // Données des mesures
 double Input;
@@ -286,28 +343,121 @@ int read_LCD_buttons() {
 // and the previous menu option
 int menuOption = 0;
 int prevMenuOption = 2;
-// 0 = non commencé
-#define INITIAL 0
-// 1 = en cours
-#define EN_COURS 1
-// 2 = stoppé
-#define STOP 2
-// consigne fixe
-#define CONSIGNE_SELECT 3
-#define CONSIGNE_EN_COURS 4
-#define STOP_CONSIGNE 5
+
 int consigneCustomTemp = 50;
-
-
-int etatCuisson = INITIAL;
+int STATE = INITIAL;
 bool menuEnCours = 0;
-
-
 
 void setup() {
   pinMode(11, INPUT);
   pinMode(13, OUTPUT);
   pinMode(L1, OUTPUT);  //L1 est une broche de sortie
+
+  Menu[MENU_INITIAL_1][ACTION_MENU] = MENU_INITIAL_1;
+  Menu[MENU_INITIAL_1][ACTION_UP] = MENU_INITIAL_1;
+  Menu[MENU_INITIAL_1][ACTION_DOWN] = MENU_INITIAL_2;
+  Menu[MENU_INITIAL_1][ACTION_SELECT] = TEMP_BISCUIT;
+  Menu[MENU_INITIAL_1][NEXT_STATE] = INITIAL;
+
+  Menu[MENU_INITIAL_2][ACTION_MENU] = MENU_INITIAL_1;
+  Menu[MENU_INITIAL_2][ACTION_UP] = MENU_INITIAL_1;
+  Menu[MENU_INITIAL_2][ACTION_DOWN] = MENU_INITIAL_2;
+  Menu[MENU_INITIAL_2][ACTION_SELECT] = TEMP_EMAIL;
+  Menu[MENU_INITIAL_2][NEXT_STATE] = CHOIX_TEMP;
+
+  Menu[MENU_INTERRUPTION_1][ACTION_MENU] = MENU_INTERRUPTION_1;
+  Menu[MENU_INTERRUPTION_1][ACTION_UP] = MENU_INTERRUPTION_1;
+  Menu[MENU_INTERRUPTION_1][ACTION_DOWN] = MENU_INTERRUPTION_2;
+  Menu[MENU_INTERRUPTION_1][ACTION_SELECT] = EN_COURS;
+  Menu[MENU_INTERRUPTION_1][NEXT_STATE] = CUISSON_EN_COURS;
+
+  Menu[MENU_INTERRUPTION_2][ACTION_MENU] = MENU_INTERRUPTION_1;
+  Menu[MENU_INTERRUPTION_2][ACTION_UP] = MENU_INTERRUPTION_1;
+  Menu[MENU_INTERRUPTION_2][ACTION_DOWN] = MENU_INTERRUPTION_2;
+  Menu[MENU_INTERRUPTION_2][ACTION_SELECT] = ARRET_CUISSON;
+  Menu[MENU_INTERRUPTION_2][NEXT_STATE] = CUISSON_REFROISDISSEMENT;
+
+  Menu[TEMP_EMAIL][ACTION_MENU] = TEMP_EMAIL;
+  Menu[TEMP_EMAIL][ACTION_UP] = TEMP_EMAIL;
+  Menu[TEMP_EMAIL][ACTION_DOWN] = TEMP_EMAIL;
+  Menu[TEMP_EMAIL][ACTION_SELECT] = LANCER_CUISSON_EMAIL;
+  Menu[TEMP_EMAIL][NEXT_STATE] = CHOIX_TEMP;  //TODO
+
+  Menu[MENU_REPRENDRE_1][ACTION_MENU] = MENU_REPRENDRE_1;
+  Menu[MENU_REPRENDRE_1][ACTION_UP] = MENU_REPRENDRE_1;
+  Menu[MENU_REPRENDRE_1][ACTION_DOWN] = MENU_REPRENDRE_2;
+  Menu[MENU_REPRENDRE_1][ACTION_SELECT] = EN_COURS;
+  Menu[MENU_REPRENDRE_1][NEXT_STATE] = CUISSON_EN_COURS;  //8
+
+  Menu[MENU_REPRENDRE_2][ACTION_MENU] = MENU_REPRENDRE_1;
+  Menu[MENU_REPRENDRE_2][ACTION_UP] = MENU_REPRENDRE_1;
+  Menu[MENU_REPRENDRE_2][ACTION_DOWN] = MENU_REPRENDRE_2;
+  Menu[MENU_REPRENDRE_2][ACTION_SELECT] = STOP;
+  Menu[MENU_REPRENDRE_2][NEXT_STATE] = CUISSON_REFROISDISSEMENT;  //8
+
+  Menu[EN_COURS][ACTION_MENU] = MENU_INTERRUPTION_1;
+  Menu[EN_COURS][ACTION_UP] = EN_COURS;
+  Menu[EN_COURS][ACTION_DOWN] = EN_COURS;
+  Menu[EN_COURS][ACTION_SELECT] = EN_COURS;
+  Menu[EN_COURS][NEXT_STATE] = CUISSON_EN_COURS;  //8
+
+  Menu[STOP][ACTION_MENU] = MENU_REPRENDRE_1;
+  Menu[STOP][ACTION_UP] = STOP;
+  Menu[STOP][ACTION_DOWN] = STOP;
+  Menu[STOP][ACTION_SELECT] = STOP;
+  Menu[STOP][NEXT_STATE] = CUISSON_REFROISDISSEMENT;  //8
+
+  Menu[EN_COURS_EMAIL][ACTION_MENU] = MENU_REPRENDRE_1;  //TODO
+  Menu[EN_COURS_EMAIL][ACTION_UP] = EN_COURS_EMAIL;
+  Menu[EN_COURS_EMAIL][ACTION_DOWN] = EN_COURS_EMAIL;
+  Menu[EN_COURS_EMAIL][ACTION_SELECT] = EN_COURS_EMAIL;
+  Menu[EN_COURS_EMAIL][NEXT_STATE] = CUISSON_EN_COURS;  //8
+
+  Menu[MENU_REPRENDRE_CF_1][ACTION_MENU] = MENU_REPRENDRE_CF_1;
+  Menu[MENU_REPRENDRE_CF_1][ACTION_UP] = MENU_REPRENDRE_CF_1;
+  Menu[MENU_REPRENDRE_CF_1][ACTION_DOWN] = MENU_REPRENDRE_CF_2;
+  Menu[MENU_REPRENDRE_CF_1][ACTION_SELECT] = EN_COURS;
+  Menu[MENU_REPRENDRE_CF_1][NEXT_STATE] = CUISSON_EN_COURS;  //8
+
+  Menu[MENU_REPRENDRE_CF_2][ACTION_MENU] = MENU_REPRENDRE_CF_2;
+  Menu[MENU_REPRENDRE_CF_2][ACTION_UP] = MENU_REPRENDRE_CF_1;
+  Menu[MENU_REPRENDRE_CF_2][ACTION_DOWN] = MENU_REPRENDRE_CF_2;
+  Menu[MENU_REPRENDRE_CF_2][ACTION_SELECT] = STOP;
+  Menu[MENU_REPRENDRE_CF_2][NEXT_STATE] = CUISSON_REFROISDISSEMENT;  //8
+
+  Menu[TEMP_BISCUIT][ACTION_MENU] = MENU_INITIAL_1;
+  Menu[TEMP_BISCUIT][ACTION_UP] = TEMP_BISCUIT;
+  Menu[TEMP_BISCUIT][ACTION_DOWN] = TEMP_BISCUIT;
+  Menu[TEMP_BISCUIT][ACTION_SELECT] = LANCER_CUISSON_1;
+  Menu[TEMP_BISCUIT][NEXT_STATE] = CHOIX_TEMP;  //8
+
+  Menu[LANCER_CUISSON_1][ACTION_MENU] = MENU_INITIAL_1;
+  Menu[LANCER_CUISSON_1][ACTION_UP] = LANCER_CUISSON_1;
+  Menu[LANCER_CUISSON_1][ACTION_DOWN] = LANCER_CUISSON_1;
+  Menu[LANCER_CUISSON_1][ACTION_SELECT] = EN_COURS;
+  Menu[LANCER_CUISSON_1][NEXT_STATE] = CHOIX_TEMP;  //8
+
+  Menu[ARRET_CUISSON][ACTION_MENU] = EN_COURS;
+  Menu[ARRET_CUISSON][ACTION_UP] = ARRET_CUISSON;
+  Menu[ARRET_CUISSON][ACTION_DOWN] = ARRET_CUISSON;
+  Menu[ARRET_CUISSON][ACTION_SELECT] = STOP;
+  Menu[ARRET_CUISSON][NEXT_STATE] = CUISSON_EN_COURS;  //8
+
+  Menu[LANCER_CUISSON_EMAIL][ACTION_MENU] = MENU_INITIAL_1;
+  Menu[LANCER_CUISSON_EMAIL][ACTION_UP] = LANCER_CUISSON_1;
+  Menu[LANCER_CUISSON_EMAIL][ACTION_DOWN] = LANCER_CUISSON_1;
+  Menu[LANCER_CUISSON_EMAIL][ACTION_SELECT] = EN_COURS_EMAIL;
+  Menu[LANCER_CUISSON_EMAIL][NEXT_STATE] = CHOIX_TEMP;  //8
+
+  Menu[ARRET_CUISSON_EMAIL][ACTION_MENU] = EN_COURS;
+  Menu[ARRET_CUISSON_EMAIL][ACTION_UP] = ARRET_CUISSON;
+  Menu[ARRET_CUISSON_EMAIL][ACTION_DOWN] = ARRET_CUISSON;
+  Menu[ARRET_CUISSON_EMAIL][ACTION_SELECT] = STOP;
+  Menu[ARRET_CUISSON_EMAIL][NEXT_STATE] = CUISSON_EN_COURS;  //8
+
+
+  ETAT_MENU = MENU_INITIAL_1;
+  STATE = INITIAL;
 
   Serial.begin(9600);
 
@@ -378,8 +528,8 @@ ISR(TIMER2_OVF_vect) {
     if (compteurEchantillon++ >= nbEchantillons - 1) {
       compteurEchantillon = 0;
       cycleTermine = true;
-      if (cuissonTerminee == false) {
-        if (etatCuisson == CONSIGNE_EN_COURS) {
+      if (STATE != CUISSON_REFROISDISSEMENT && STATE != CUISSON_TERMINEE) {
+        if (STATE == EN_COURS_EMAIL) {
           consigne = consigneCustomTemp;
         } else {
           consigne = calculeConsigne(phaseEnCours, dureePhase);
@@ -398,8 +548,8 @@ ISR(TIMER2_OVF_vect) {
         ratio = 0;
       }
     }
-    if (etatCuisson == EN_COURS || etatCuisson == CONSIGNE_EN_COURS || etatCuisson == STOP) {
-      if (compteurEchantillon < ratio && cuissonTerminee == false) {
+    if (STATE == CUISSON_EN_COURS || STATE == EN_COURS_EMAIL || STATE == STOP) {
+      if (compteurEchantillon < ratio && STATE != CUISSON_REFROISDISSEMENT && STATE != CUISSON_TERMINEE) {
         digitalWrite(L1, HIGH);  //allumer L1
       } else {
         digitalWrite(L1, LOW);  //éteindre L1
@@ -412,11 +562,6 @@ ISR(TIMER2_OVF_vect) {
 /*****************************************
  * 
  */
-
-#define T_MENU 0
-#define T_UP 1
-#define T_DOWN 2
-#define T_SELECT 3
 int previousBtn = 0;
 
 void checkMenu() {
@@ -429,20 +574,20 @@ void checkMenu() {
   switch (button1State)  // depending on which button was pushed, we perform an action
   {
     case btnRIGHT:
-      menuOption = T_MENU;
+      menuOption = ACTION_MENU;
       break;
     case btnLEFT:  // touche menu
-      menuOption = T_MENU;
+      menuOption = ACTION_MENU;
       break;
     case btnUP:
-      menuOption = T_UP;
+      menuOption = ACTION_UP;
       break;
     case btnDOWN:
-      menuOption = T_DOWN;
+      menuOption = ACTION_DOWN;
       break;
     case btnSELECT:
       {
-        menuOption = T_SELECT;
+        menuOption = ACTION_SELECT;
         break;
       }
     case btnNONE:
@@ -472,256 +617,58 @@ void checkMenu() {
     menuEnCours = 1;
     // update the LCD to show the selected option
     lcd.clear();
+
     switch (menuOption) {
-      case T_MENU:
-        switch(etatCuisson) {
-          case INITIAL:
-            lcd.setCursor(0, 0);
-            lcd.print(">Cuisson Biscuit");
-            lcd.setCursor(0, 1);
-            lcd.print(" Consigne Fixe");
+      case ACTION_SELECT:
+        ETAT_MENU = Menu[ETAT_MENU][ACTION_SELECT];
+        STATE = Menu[ETAT_MENU][NEXT_STATE];
+        switch (STATE) {
+          case CUISSON_EN_COURS:
+            stopCuisson = false;
+            cuissonTerminee = false;
+            tInit = millis()/TSec;
             break;
-          case EN_COURS:
-            lcd.setCursor(0, 0);
-            lcd.print(">Continuer");
-            lcd.setCursor(0, 1);
-            lcd.print(" Stopper");
-            break;
-          case STOP:
-            lcd.setCursor(0, 0);
-            lcd.print(">Reprendre");
-            lcd.setCursor(0, 1);
-            lcd.print(" Menu Principal");
-            break;
-          case CONSIGNE_EN_COURS:
-            lcd.setCursor(0, 0);
-            lcd.print(">Continuer");
-            lcd.setCursor(0, 1);
-            lcd.print(" Stopper");
-            break;
-         case STOP_CONSIGNE:
-            lcd.setCursor(0, 0);
-            lcd.print(">Reprendre");
-            lcd.setCursor(0, 1);
-            lcd.print(" Menu Principal");
+          case CUISSON_REFROISDISSEMENT:
+          case CUISSON_TERMINEE:
+            stopCuisson = true;
+            cuissonTerminee = true;
+            tInit = millis()/TSec;
             break;
         }
-//        prevMenuOption = menuOption;
+  
         break;
-      case T_UP:
-        switch(etatCuisson) {
-          case INITIAL:
-            lcd.setCursor(0, 0);
-            lcd.print(">Cuisson Biscuit");
-            lcd.setCursor(0, 1);
-            lcd.print(" Consigne Fixe");
-            break;
-          case EN_COURS:
-            lcd.setCursor(0, 0);
-            lcd.print(">Continuer");
-            lcd.setCursor(0, 1);
-            lcd.print(" Stopper");
-            break;
-          case STOP:
-            lcd.setCursor(0, 0);
-            lcd.print(">Reprendre");
-            lcd.setCursor(0, 1);
-            lcd.print(" Menu Principal");
-            break;
-          case CONSIGNE_SELECT:
-            lcd.setCursor(0, 0);
-            lcd.print("Consigne fixe");
-            lcd.setCursor(0, 1);
-            lcd.print("Temp: ");
-            if(consigneCustomTemp < 1050) {
-              consigneCustomTemp += 50;
-            }
-            lcd.print(consigneCustomTemp);
-            break;
-          case CONSIGNE_EN_COURS:
-            lcd.setCursor(0, 0);
-            lcd.print(">Continuer");
-            lcd.setCursor(0, 1);
-            lcd.print(" Stopper");
-            break;
-          case STOP_CONSIGNE:
-            lcd.setCursor(0, 0);
-            lcd.print(">Reprendre");
-            lcd.setCursor(0, 1);
-            lcd.print(" Menu Principal");
-            break;
+      case ACTION_DOWN:
+        ETAT_MENU = Menu[ETAT_MENU][ACTION_DOWN];
+        switch (ETAT_MENU) {
+          case TEMP_BISCUIT:
+          case TEMP_EMAIL:
+            if (consigneCustomTemp > 700) consigneCustomTemp -= 10;
         }
         break;
-      case T_DOWN:
-        switch(etatCuisson) {
-          case INITIAL:
-            lcd.setCursor(0, 0);
-            lcd.print(" Cuisson Biscuit");
-            lcd.setCursor(0, 1);
-            lcd.print(">Consigne Fixe");
-            break;
-          case EN_COURS:
-            lcd.setCursor(0, 0);
-            lcd.print(" Continuer");
-            lcd.setCursor(0, 1);
-            lcd.print(">Stopper");
-            break;
-          case STOP:
-            lcd.setCursor(0, 0);
-            lcd.print(" Reprendre");
-            lcd.setCursor(0, 1);
-            lcd.print(">Menu Principal");
-            break;
-          case CONSIGNE_SELECT:
-            lcd.setCursor(0, 0);
-            lcd.print("Consigne fixe");
-            lcd.setCursor(0, 1);
-            lcd.print("Temp: ");
-            if(consigneCustomTemp > 0) {
-              consigneCustomTemp -= 50;
-            }
-            lcd.print(consigneCustomTemp);
-            break;
-          case CONSIGNE_EN_COURS:
-            lcd.setCursor(0, 0);
-            lcd.print(" Continuer");
-            lcd.setCursor(0, 1);
-            lcd.print(">Stopper");
-            break;
-          case STOP_CONSIGNE:
-            lcd.setCursor(0, 0);
-            lcd.print(" Reprendre");
-            lcd.setCursor(0, 1);
-            lcd.print(">Menu Principal");
-            break;
+      case ACTION_UP:
+        ETAT_MENU = Menu[ETAT_MENU][ACTION_UP];
+        switch (ETAT_MENU) {
+          case TEMP_BISCUIT:
+          case TEMP_EMAIL:
+            if (consigneCustomTemp < 1100) consigneCustomTemp += 10;
         }
-//        prevMenuOption = menuOption;
         break;
-      case T_SELECT: // select
-        switch(etatCuisson) {
-            case INITIAL:
-              if (prevMenuOption == T_DOWN) {// option Consigne Fixe 
-                lcd.print("Consigne fixe");
-                etatCuisson = CONSIGNE_SELECT;
-                lcd.setCursor(0, 1);
-                lcd.print("Temp: ");
-                lcd.print(consigneCustomTemp);
-              } else {
-                lcd.print("Depart cuisson"); // option cuisson biscuit
-                stopCuisson = false;
-                cuissonTerminee = false;
-                etatCuisson = EN_COURS;
-                menuEnCours = 0;
-                tInit = millis()/TSec;
-              }
-              break;
-            case EN_COURS:
-              if (prevMenuOption == T_UP) {// option Continuer 
-                lcd.setCursor(0, 0);
-                lcd.print("Reprise cuisson");
-                stopCuisson = false;
-                menuEnCours = 0;
-              } else if (prevMenuOption == T_DOWN) { //Option stopper
-                lcd.setCursor(0, 0);
-                lcd.print("Stop cuisson");
-                cuissonTerminee = true;
-                stopCuisson = true;
-                menuEnCours = 0;
-                etatCuisson = STOP;
-              }
-              break;
-            case STOP:
-              if (prevMenuOption == T_UP) {// option Reprendre 
-                lcd.setCursor(0, 0);
-                lcd.print("Reprise cuisson");
-                stopCuisson = false;
-                cuissonTerminee = false;
-                etatCuisson = EN_COURS;
-                menuEnCours = 0;
-              } else if (prevMenuOption == T_DOWN) { //Option Menu Principal
-                lcd.setCursor(0, 0);
-                lcd.print(">Cuisson Biscuit");
-                lcd.setCursor(0, 1);
-                lcd.print(" Consigne Fixe");
-                etatCuisson = INITIAL;
-                //menuEnCours = 0;
-              } else {
-                lcd.setCursor(0, 0);
-                lcd.print("Reprise cuisson");
-                stopCuisson = false;
-                cuissonTerminee = false;
-                etatCuisson = EN_COURS;
-                menuEnCours = 0;
-              }
-              break;  
-            case CONSIGNE_SELECT:
-              lcd.setCursor(0, 0);
-              lcd.print("Consigne fixe");
-              lcd.setCursor(0, 1);
-              lcd.print("Temp: ");
-              etatCuisson = CONSIGNE_EN_COURS;
-              stopCuisson = false;
-              cuissonTerminee = false;
-              menuEnCours = 0;
-              tInit = millis()/TSec;
-              break;
-            case CONSIGNE_EN_COURS:
-              if (prevMenuOption == T_UP) {// option Continuer 
-                lcd.setCursor(0, 0);
-                lcd.print("Reprise cuisson");
-                stopCuisson = false;
-                menuEnCours = 0;
-              } else if (prevMenuOption == T_DOWN) { //Option stopper
-                lcd.setCursor(0, 0);
-                lcd.print("Stop cuisson");
-                cuissonTerminee = true;
-                stopCuisson = true;
-                menuEnCours = 0;
-                etatCuisson = STOP_CONSIGNE;
-              }
-              break;
-            case STOP_CONSIGNE:
-              if (prevMenuOption == T_UP) {// option Reprendre 
-                lcd.setCursor(0, 0);
-                lcd.print("Reprise cuisson");
-                stopCuisson = false;
-                cuissonTerminee = false;
-                etatCuisson = CONSIGNE_EN_COURS;
-                menuEnCours = 0;
-              } else if (prevMenuOption == T_DOWN) { //Option Menu Principal
-                lcd.setCursor(0, 0);
-                lcd.print(">Cuisson Biscuit");
-                lcd.setCursor(0, 1);
-                lcd.print(" Consigne Fixe");
-                etatCuisson = INITIAL;
-                //menuEnCours = 0;
-              } else {
-                lcd.setCursor(0, 0);
-                lcd.print("Reprise cuisson");
-                stopCuisson = false;
-                cuissonTerminee = false;
-                etatCuisson = CONSIGNE_EN_COURS;
-                menuEnCours = 0;
-              }
-              break;  
-        }
-        break;        
-      default:
-        break;  
-        
+      case ACTION_MENU:
+        ETAT_MENU = Menu[ETAT_MENU][ACTION_MENU];
+        break;
     }
-    // update the previous menu option
-    prevMenuOption = menuOption;
   }
- }
- 
+
+  prevMenuOption = menuOption;
+}
+
 /*****************************************
  * Boucle principale
  */
 void loop() {
   checkMenu();
   if (menuEnCours != 1) {
-    if (etatCuisson == EN_COURS || etatCuisson == STOP || etatCuisson == CONSIGNE_EN_COURS || etatCuisson == STOP_CONSIGNE) {
+    if (STATE == CUISSON_EN_COURS || STATE == STOP || STATE == EN_COURS_EMAIL || STATE == ARRET_CUISSON_EMAIL) {
       // Lecture de l'horloge interne en ms
       Temps_ms = millis();  // 2^32 secondes = 49.71 jours
       // Calcul des secondes
@@ -740,9 +687,9 @@ void loop() {
         consigneInitiale = Input;
         initialisation = false;
       }
-      if (cuissonTerminee == false && stopCuisson == false) {
+      if (STATE != CUISSON_REFROISDISSEMENT && STATE != CUISSON_TERMINEE && stopCuisson == false) {
         // calcul de la consigne
-        if (etatCuisson == EN_COURS) {
+        if (STATE == CUISSON_EN_COURS) {
           consigne = calculeConsigne(phaseEnCours, dureePhase);
         } else {
           consigne = consigneCustomTemp;
@@ -755,7 +702,7 @@ void loop() {
           displayTemperature(Input, consigne);
         } else {
           // affichage temps écoulé
-          if (etatCuisson == EN_COURS) {
+          if (STATE == CUISSON_EN_COURS) {
             displayPhase(phaseEnCours, dureePhase);
             displayGoal(Input, courbe[typeCuisson][phaseEnCours].t1);
           } else {
@@ -782,7 +729,7 @@ void loop() {
           Serial.print(ratio);
           Serial.print(";");
         }
-        if (etatCuisson == EN_COURS) {
+        if (STATE == CUISSON_EN_COURS) {
           if (changePhase(consigne, Input, phaseEnCours, dureePhase, tDecalePhase)) {
             tInit = t;
             tDecalePhase = 0;
