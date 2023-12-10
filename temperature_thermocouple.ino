@@ -96,7 +96,7 @@ boolean cuissonTerminee;
 double Kp = 7;      //2;
 float Ki = 0.0006;  // 0.00038
 double Kd = 10000;  // 10000
-double dt = 0.5;      // période échantillonage = 0.5s à rapprocher du timer 
+double dt = 0.25;      // période échantillonage = 0.5s à rapprocher du timer 
 double integration = 0.;
 double derivation = 0.;
 double erreur_n_1 = 0;
@@ -538,10 +538,12 @@ float ratio;
 bool stopCuisson = false;
 // Routine d'interruption
 ISR(TIMER2_OVF_vect) {
+  //15625*16µs
   // on fait partir le timer de 6 pour qu'il compte 250 avant déborder
   // il déborde ainsi toutes les 4 ms
-  TCNT2 = 256 - 250;               // Timer CoNTrole2 250 x 16 µS = 4 ms
-  if (varCompteurTimer++ > 125) {  // 125 * 4 ms = 500 ms
+  //TCNT2 = 256 - 250;               // Timer CoNTrole2 250 x 16 µS = 4 ms
+  TCNT2 = 256 - 125;                  //125*16µs 2.096ms
+  if (varCompteurTimer++ > 125) {  // 62 * 4 ms = 248 ms //125* 4*s = 500ms
     varCompteurTimer = 0;
 
     if (compteurEchantillon++ >= nbEchantillons - 1) {
@@ -559,10 +561,10 @@ ISR(TIMER2_OVF_vect) {
         erreur = calculeErreur(consigne, temperatureActuelle);
         derivation = correctionDerive(erreur_n_1, erreur);
         erreur_n_1 = erreur;
-        CorrectionP = correctionProportionnelle(calculeErreur(consigne, temperatureActuelle));
+        CorrectionP = correctionProportionnelle(erreur);
         integration = correctionIntegral(erreur, integration);
         commande = integration + CorrectionP + derivation;
-        ratio = calculRatio(commande, AMPLITUDE_MAX, nbEchantillons);
+        ratio = round(calculRatio(commande, AMPLITUDE_MAX, nbEchantillons));
       } else {
         ratio = 0;
       }
