@@ -72,8 +72,9 @@ const int L1 = 3;  // commande relais / LED
 
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 // Données des mesures
+double temperatureMoyenne;
+double mesures[16];
 double temperatureActuelle;
-
 typedef struct {
   int t0; // temerature de depart
   int t1; // temperature cible
@@ -93,21 +94,28 @@ boolean cuissonTerminee;
 
 
 // constantes de correction
-double Kp = 7;      //2;
-float Ki = 0.0006;  // 0.00038
-double Kd = 10000;  // 10000
-double dt = 0.25;      // période échantillonage = 0.5s à rapprocher du timer 
+// basse temperature
+double Kp_basse_temperature = 8;      //2;
+float Ki_basse_temperature = 0.0006;  // 0.00038
+double Kd_basse_temperature = 10000;  // 10000
+//haute temperature
+double Kp_haute_temperature = 9;      //2;
+float Ki_haute_temperature = 0.0007;  // 0.00038
+double Kd_haute_temperature = 10000;  // 10000
+
+double dt = 0.25;      // période échantillonage = 0.25s à rapprocher du timer 
 double integration = 0.;
 double derivation = 0.;
 double erreur_n_1 = 0;
 // constantes de système
+const int TEMPERATURE_SEUIL_PID = 600; // seuil de température pour changement paramètres PID
 const int AMPLITUDE_MAX = 1050;   // température max do four (température de travail)
 int nbEchantillons = 120;  // base de codage pour une valeur de consigne
 
 // cuisson faïence
 int temperatureMax = 1030;
 const int DEFAULT_TEMPERATURE_MAX_EMAIL = 950;
-const int DEFAULT_TEMPERATURE_MAX_BISCUIT = 1030;
+const int DEFAULT_TEMPERATURE_MAX_BISCUIT = 910;
 const int NB_TYPES = 2;
 const int NB_PHASES = 6;
 segment courbe[NB_TYPES][NB_PHASES] = {
@@ -164,16 +172,27 @@ float calculeErreur(float consigne, float mesure) {
 /**
  * Correction statique PID
  */
-float correctionProportionnelle(float erreur) {
-  return erreur * Kp;
+float correctionProportionnelle(float erreur, float mesure) {
+  if (mesure < TEMPERATURE_SEUIL_PID) {
+    return erreur * Kp_basse_temperature;
+  } 
+    return erreur * Kp_haute_temperature;
 }
 
-float correctionIntegral(float erreur, float integration) {
-  return Ki * dt * nbEchantillons * erreur + integration;
+float correctionIntegral(float erreur, float integration, float mesure) {
+   if (mesure < TEMPERATURE_SEUIL_PID) {
+     return Ki_basse_temperature * dt * nbEchantillons * erreur + integration;
+   }
+  return Ki_haute_temperature * dt * nbEchantillons * erreur + integration;
 }
 
-float correctionDerive(float erreur_n_1, float erreur) {
-  return (erreur - erreur_n_1) * Kd * dt / (nbEchantillons);
+float correctionDerive(float erreur_n_1, float erreur, float mesure) {
+  if (mesure < TEMPERATURE_SEUIL_PID) {
+    return (erreur - erreur_n_1) * Kd_basse_temperature * dt / (nbEchantillons);  
+  } else {
+    return (erreur - erreur_n_1) * Kd_haute_temperature * dt / (nbEchantillons);  
+  }
+  
 }
 
 /* calcul de la consigne
@@ -197,8 +216,8 @@ float calculeConsigne(int phase, float t) {
     }
     return maxTemp;
   }
-  if (temperatureInitiale < temperatureActuelle) {
-    return pente * t / 3600 + temperatureActuelle;
+  if (temperatureInitiale < temperatureMoyenne) {
+    return pente * t / 3600 + temperatureMoyenne;
   }
   return pente * t / 3600 + temperatureInitiale;
   
@@ -323,6 +342,17 @@ float readTemp(Adafruit_MAX31856 &maxTh, float temp) {
     Serial.println("Conversion not complete!");
   }
   return temp;
+}
+float calculTemperatureMoyenne(float temperature) {
+  byte i=0;
+  float totalTemp = 0;
+  for(i=0; i<16; i++) {
+    mesures[15-i] = mesures[14-i];
+    totalTemp += mesures[14-i];
+  }
+  mesures[0] = temperature;
+  totalTemp += temperature;
+  return totalTemp/16;
 }
 /**
  * Gestion du menu
@@ -503,16 +533,16 @@ void setup() {
   maxthermo.setThermocoupleType(MAX31856_TCTYPE_K);
   //Serial.print("Thermocouple type: ");
   switch (maxthermo.getThermocoupleType()) {
-    case MAX31856_TCTYPE_B: Serial.println("B Type"); break;
-    case MAX31856_TCTYPE_E: Serial.println("E Type"); break;
-    case MAX31856_TCTYPE_J: Serial.println("J Type"); break;
+    //case MAX31856_TCTYPE_B: Serial.println("B Type"); break;
+    //case MAX31856_TCTYPE_E: Serial.println("E Type"); break;
+    //case MAX31856_TCTYPE_J: Serial.println("J Type"); break;
     case MAX31856_TCTYPE_K: Serial.println("K Type"); break;
-    case MAX31856_TCTYPE_N: Serial.println("N Type"); break;
-    case MAX31856_TCTYPE_R: Serial.println("R Type"); break;
-    case MAX31856_TCTYPE_S: Serial.println("S Type"); break;
-    case MAX31856_TCTYPE_T: Serial.println("T Type"); break;
-    case MAX31856_VMODE_G8: Serial.println("Voltage x8 Gain mode"); break;
-    case MAX31856_VMODE_G32: Serial.println("Voltage x8 Gain mode"); break;
+    //case MAX31856_TCTYPE_N: Serial.println("N Type"); break;
+    //case MAX31856_TCTYPE_R: Serial.println("R Type"); break;
+    //case MAX31856_TCTYPE_S: Serial.println("S Type"); break;
+    //case MAX31856_TCTYPE_T: Serial.println("T Type"); break;
+    //case MAX31856_VMODE_G8: Serial.println("Voltage x8 Gain mode"); break;
+    //case MAX31856_VMODE_G32: Serial.println("Voltage x8 Gain mode"); break;
     default: Serial.println("Unknown"); break;
   }
 
@@ -529,7 +559,7 @@ void setup() {
   delay(250);
   digitalWrite(L1, LOW);  // éteindre L1
   cycleTermine = true;
-  Serial.println("erreur;correctionP;Integration;Derivation;commande;mesure;ratio");
+  Serial.println("erreur;correctionP;Integration;Derivation;commande;mesure;ratio;consigne");
 }
 
 byte varCompteurTimer = 0;  // La variable compteur
@@ -558,11 +588,11 @@ ISR(TIMER2_OVF_vect) {
         // calcul de la consigne
 
         // calcul de la commande
-        erreur = calculeErreur(consigne, temperatureActuelle);
-        derivation = correctionDerive(erreur_n_1, erreur);
+        erreur = calculeErreur(consigne, temperatureMoyenne);
+        derivation = correctionDerive(erreur_n_1, erreur, temperatureMoyenne);
         erreur_n_1 = erreur;
-        CorrectionP = correctionProportionnelle(erreur);
-        integration = correctionIntegral(erreur, integration);
+        CorrectionP = correctionProportionnelle(erreur, temperatureMoyenne);
+        integration = correctionIntegral(erreur, integration, temperatureMoyenne);
         commande = integration + CorrectionP + derivation;
         ratio = round(calculRatio(commande, AMPLITUDE_MAX, nbEchantillons));
       } else {
@@ -697,15 +727,22 @@ void checkMenu() {
  */
 void loop() {
   checkMenu();
-  //Serial.print(STATE);
-  //Serial.print(";");
-  //Serial.print(ETAT_MENU);
-  //Serial.println(";");
-  
+  temperatureActuelle = readTemp(maxthermo, temperatureActuelle);
+  temperatureMoyenne= calculTemperatureMoyenne(temperatureActuelle);
+  if (initialisation == true) {
+    byte i;
+    for (i=0; i<16; i++) {
+      mesures[i] = temperatureActuelle;
+    }
+    temperatureMoyenne= calculTemperatureMoyenne(temperatureActuelle);
+    consigneInitiale = temperatureMoyenne + 10; // départ immédiat
+    initialisation = false;
+  }
+
   switch (STATE) {
     case INITIAL:
       menuEnCours = 1; 
-      temperatureActuelle = readTemp(maxthermo, temperatureActuelle);
+      
       lcd.setCursor(10, 0);   
       lcd.print(temperatureActuelle);
       lcd.setCursor(15, 1);   
@@ -735,7 +772,7 @@ void loop() {
     lcd.print(MenuItems[ETAT_MENU][1]);
     
   } else {
-    if (STATE == CUISSON_EN_COURS || STATE == STOP || STATE == EN_COURS_EMAIL || STATE == ARRET_CUISSON_EMAIL) {
+    if (STATE == CUISSON_EN_COURS || STATE == STOP || STATE == CUISSON_REFROISDISSEMENT || STATE == CUISSON_TERMINEE) {
       // Lecture de l'horloge interne en ms
       Temps_ms = millis();  // 2^32 secondes = 49.71 jours
       // Calcul des secondes
@@ -749,11 +786,7 @@ void loop() {
       // Calcul des heures
       Num_heur = (Temps_ms / (TSec * 3600)) % 60;
 
-      temperatureActuelle = readTemp(maxthermo, temperatureActuelle);
-      if (initialisation == true) {
-        consigneInitiale = temperatureActuelle;
-        initialisation = false;
-      }
+      
       if (STATE != CUISSON_REFROISDISSEMENT && STATE != CUISSON_TERMINEE && stopCuisson == false) {
         // calcul de la consigne
         if (STATE == CUISSON_EN_COURS) {
@@ -767,7 +800,7 @@ void loop() {
         if (Num_sec % 10 > 5) {
           // affichage temps écoulé
           displayTime(Num_heur, Num_min, Num_sec);
-          displayTemperature(temperatureActuelle, consigne);
+          displayTemperature(temperatureMoyenne, consigne);
         } else {
           // affichage temps écoulé
           if (STATE == CUISSON_EN_COURS) {
@@ -776,9 +809,9 @@ void loop() {
             if (courbe[typeCuisson][phaseEnCours].parametrable) {
               maxTemp = temperatureMax;
             }
-            displayGoal(temperatureActuelle, maxTemp);
+            displayGoal(temperatureMoyenne, maxTemp);
           } else { //TODO
-            displayGoal(temperatureActuelle, temperatureMax);
+            displayGoal(temperatureMoyenne, temperatureMax);
             displayTime(Num_heur, Num_min, Num_sec);
           }
         }
@@ -796,13 +829,15 @@ void loop() {
           Serial.print(";");
           Serial.print(commande);
           Serial.print(";");
-          Serial.print(temperatureActuelle);
+          Serial.print(temperatureMoyenne);
           Serial.print(";");
           Serial.print(ratio);
           Serial.print(";");
+          Serial.print(consigne);
+          Serial.print(";");
         }
         if (STATE == CUISSON_EN_COURS) {
-          if (changePhase(consigne, temperatureActuelle, phaseEnCours, dureePhase, tDecalePhase)) {
+          if (changePhase(consigne, temperatureMoyenne, phaseEnCours, dureePhase, tDecalePhase)) {
             tInit = t;
             tDecalePhase = 0;
             phaseEnCours++;
@@ -813,7 +848,7 @@ void loop() {
         }
       } else {
         lcd.clear();
-        displayTemperature(temperatureActuelle, consigne);
+        displayTemperature(temperatureMoyenne, consigne);
         displayFinCuisson();
         ratio = 0;
         if (cycleTermine == true) {
@@ -824,7 +859,7 @@ void loop() {
           Serial.print(";");
           Serial.print(";");
           Serial.print(";");
-          Serial.print(temperatureActuelle);
+          Serial.print(temperatureMoyenne);
           Serial.print(";");
           Serial.print(ratio);
           Serial.print(";");
