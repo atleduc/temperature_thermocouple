@@ -99,8 +99,8 @@ double Kp_basse_temperature = 8;      //2;
 float Ki_basse_temperature = 0.0006;  // 0.00038
 double Kd_basse_temperature = 10000;  // 10000
 //haute temperature
-double Kp_haute_temperature = 9;      //2;
-float Ki_haute_temperature = 0.0007;  // 0.00038
+double Kp_haute_temperature = 11;      //2;
+float Ki_haute_temperature = 0.0012;  // 0.00038
 double Kd_haute_temperature = 10000;  // 10000
 
 double dt = 0.25;      // période échantillonage = 0.25s à rapprocher du timer 
@@ -346,9 +346,9 @@ float readTemp(Adafruit_MAX31856 &maxTh, float temp) {
 float calculTemperatureMoyenne(float temperature) {
   byte i=0;
   float totalTemp = 0;
-  for(i=0; i<16; i++) {
+  for(i=0; i<15; i++) {
     mesures[15-i] = mesures[14-i];
-    totalTemp += mesures[14-i];
+    totalTemp += mesures[15-i];
   }
   mesures[0] = temperature;
   totalTemp += temperature;
