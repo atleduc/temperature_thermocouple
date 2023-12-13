@@ -73,7 +73,6 @@ const int L1 = 3;  // commande relais / LED
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 // Données des mesures
 double temperatureMoyenne;
-double mesures[16];
 double temperatureActuelle;
 typedef struct {
   int t0; // temerature de depart
@@ -113,7 +112,7 @@ const int AMPLITUDE_MAX = 1050;   // température max do four (température de t
 int nbEchantillons = 120;  // base de codage pour une valeur de consigne
 
 // cuisson faïence
-int temperatureMax = 1030;
+int userDefinedMaxTemp = 1030;
 const int DEFAULT_TEMPERATURE_MAX_EMAIL = 950;
 const int DEFAULT_TEMPERATURE_MAX_BISCUIT = 910;
 const int NB_TYPES = 2;
@@ -122,12 +121,12 @@ segment courbe[NB_TYPES][NB_PHASES] = {
   {
     // cuisson faience
     // pentes de chauffe en °C / heure
-    { 0, 100, 100, 0 , false},     // 0 à 100° à 100°C/heure
-    { 100, 100, 0, 1, false },    // 95 à 105° pendant 10 minutes
-   { 100, 400, 100, 0, false },   // 105 à 400° à 100°C/heure
-    { 400, 400, 0, 15, false },    // 400° pendant 15 min
-   { 400, 1030, 150, 0, true},  // 400 à 1030° à 150°C/heure
-    { 1030, 1030, 0, 30, true},  // 1030° pendant 30 min
+    { 0, 100, 100, 0 , false},    // 0 à 100° à 100°C/heure
+    { 100, 100, 0, 1, false },    // 100° pendant 10 minutes
+    { 100, 400, 100, 0, false },  // 105 à 400° à 100°C/heure
+    { 400, 400, 0, 15, false },   // 400° pendant 15 min
+    { 400, 1030, 150, 0, true},   // 400 à 1030° à 150°C/heure
+    { 1030, 1030, 0, 30, true},   // 1030° pendant 30 min
   },
   {
     // cuisson email
@@ -203,12 +202,15 @@ float calculeConsigne(int phase, float t) {
   float pente = courbe[typeCuisson][phase].pente;
   float temperatureInitiale = courbe[typeCuisson][phase].t0;
   float maxTemp = courbe[typeCuisson][phase].t1;
-  if (courbe[typeCuisson][phase].parametrable) {
-    maxTemp = temperatureMax;
+  bool parametrable = courbe[typeCuisson][phase].parametrable;
+
+  if (parametrable) {
+    maxTemp = userDefinedMaxTemp;
   }
   if (pente == 0) {
     return maxTemp;
   }  
+  // phase départ cuisson
   if (phase == 0) {
     float consigne = pente * t / 3600 + consigneInitiale;
     if (consigne <= maxTemp) {
@@ -216,8 +218,10 @@ float calculeConsigne(int phase, float t) {
     }
     return maxTemp;
   }
-  if (temperatureInitiale < temperatureMoyenne) {
-    return pente * t / 3600 + temperatureMoyenne;
+  // phases cuisson
+  // si température initiale inférieure à la température actuelle, on part de la température actuelle
+  if (temperatureInitiale < temperatureMoyenne) { 
+    temperatureInitiale = temperatureMoyenne;
   }
   return pente * t / 3600 + temperatureInitiale;
   
@@ -249,7 +253,7 @@ boolean changePhase(float consigne, float mesure, int phase, float t, float &tDe
   } else {
     float maxTemp = courbe[typeCuisson][phase].t1;
     if (courbe[typeCuisson][phase].parametrable) {
-      maxTemp = temperatureMax;
+      maxTemp = userDefinedMaxTemp;
     }
     return maxTemp <= consigne;
   }
@@ -343,6 +347,12 @@ float readTemp(Adafruit_MAX31856 &maxTh, float temp) {
   }
   return temp;
 }
+/**
+ * Calcul de la température moyenne
+ * 
+*/
+double mesures[16]; // tableau des mesures de températures aggrégées
+
 float calculTemperatureMoyenne(float temperature) {
   byte i=0;
   float totalTemp = 0;
@@ -676,10 +686,10 @@ void checkMenu() {
         ETAT_MENU = Menu[ETAT_MENU][ACTION_SELECT];
         if (ETAT_MENU == TEMP_EMAIL) {
           typeCuisson = CUISSON_EMAIL;
-          temperatureMax = DEFAULT_TEMPERATURE_MAX_EMAIL;
+          userDefinedMaxTemp = DEFAULT_TEMPERATURE_MAX_EMAIL;
         } else if (ETAT_MENU == TEMP_BISCUIT) {
           typeCuisson = CUISSON_BISCUIT;
-          temperatureMax = DEFAULT_TEMPERATURE_MAX_BISCUIT;
+          userDefinedMaxTemp = DEFAULT_TEMPERATURE_MAX_BISCUIT;
         }
         STATE = Menu[ETAT_MENU][NEXT_STATE];
         switch (STATE) {
@@ -702,7 +712,7 @@ void checkMenu() {
         switch (ETAT_MENU) {
           case TEMP_BISCUIT:
           case TEMP_EMAIL:
-            if (temperatureMax > 700) temperatureMax -= 10;
+            if (userDefinedMaxTemp > 700) userDefinedMaxTemp -= 10;
         }
         break;
       case ACTION_UP:
@@ -710,7 +720,7 @@ void checkMenu() {
         switch (ETAT_MENU) {
           case TEMP_BISCUIT:
           case TEMP_EMAIL:
-            if (temperatureMax < 1100) temperatureMax += 10;
+            if (userDefinedMaxTemp < 1100) userDefinedMaxTemp += 10;
         }
         break;
       case ACTION_MENU:
@@ -763,7 +773,7 @@ void loop() {
       lcd.setCursor(15, 1);
       lcd.print("C");
       lcd.setCursor(4, 1);
-      lcd.print(temperatureMax); break;
+      lcd.print(userDefinedMaxTemp); break;
   }
   if (menuEnCours) {
     lcd.setCursor(0, 0);
@@ -793,7 +803,7 @@ void loop() {
           consigne = calculeConsigne(phaseEnCours, dureePhase);
           //Serial.println(consigne);
         } else {
-          consigne = temperatureMax;
+          consigne = userDefinedMaxTemp;
         }
         // affichage température
         lcd.clear();
@@ -807,11 +817,11 @@ void loop() {
             displayPhase(phaseEnCours, dureePhase);
             float maxTemp = courbe[typeCuisson][phaseEnCours].t1;
             if (courbe[typeCuisson][phaseEnCours].parametrable) {
-              maxTemp = temperatureMax;
+              maxTemp = userDefinedMaxTemp;
             }
             displayGoal(temperatureMoyenne, maxTemp);
           } else { //TODO
-            displayGoal(temperatureMoyenne, temperatureMax);
+            displayGoal(temperatureMoyenne, userDefinedMaxTemp);
             displayTime(Num_heur, Num_min, Num_sec);
           }
         }
