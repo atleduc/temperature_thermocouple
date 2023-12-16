@@ -190,7 +190,7 @@ float correctionIntegral(float erreur, float integration, float mesure) {
 }
 
 float correctionDerive(float erreur_n_1, float erreur, float mesure) {
-  if (mesure < TEMPERATURE_SEUIL_PID) {
+  if (mesure < TEMPERATURE_SEUIL_PID) { //todo
     return (erreur - erreur_n_1) * Kd_basse_temperature * dt / (nbEchantillons);  
   } else {
     return (erreur - erreur_n_1) * Kd_haute_temperature * dt / (nbEchantillons);  
@@ -862,6 +862,9 @@ void loop() {
             tInit = t;
             tDecalePhase = 0;
             phaseEnCours++;
+            derivation = 0;
+            CorrectionP = 0;
+            integration = 0;
             if (phaseEnCours >= NB_PHASES) {
               cuissonTerminee = true;
             }
