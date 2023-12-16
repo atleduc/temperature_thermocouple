@@ -92,15 +92,18 @@ unsigned long t;
 boolean cuissonTerminee;
 
 
-// constantes de correction
+// constantes de correction établies par étude de la réponse indicielle
+// retard apparent : t1 = 459.831 secondes
+// a = 86.68 °C
+//
 // basse temperature
-double Kp_basse_temperature = 0,014696416;      //2;
-float Ki_basse_temperature = 919,662;  // 0.00038
-double Kd_basse_temperature = 229,9155;  // 10000
+double Kp_basse_temperature = 0,014696416; // 
+float Ki_basse_temperature = 919,662;      // 1/Ki is used after
+double Kd_basse_temperature = 229,9155;    // 10000
 //haute temperature
-double Kp_haute_temperature =  0,014696416;      //2;
-float Ki_haute_temperature = 919,662;  // 0.00038
-double Kd_haute_temperature = 229,9155;  // 10000
+double Kp_haute_temperature =  0,014696416; //
+float Ki_haute_temperature = 919,662;       // 1/Ki is used after
+double Kd_haute_temperature = 229,9155;     // 
 
 double dt = 0.25;      // période échantillonage = 0.25s à rapprocher du timer 
 double integration = 0.;
@@ -179,10 +182,11 @@ float correctionProportionnelle(float erreur, float mesure) {
 }
 
 float correctionIntegral(float erreur, float integration, float mesure) {
+  // Ki = 1/Ti
    if (mesure < TEMPERATURE_SEUIL_PID) {
-     return Ki_basse_temperature * dt * nbEchantillons * erreur + integration;
+     return   dt * nbEchantillons * erreur / Ki_basse_temperature  + integration ;
    }
-  return Ki_haute_temperature * dt * nbEchantillons * erreur + integration;
+  return dt * nbEchantillons * erreur / Ki_haute_temperature  + integration;
 }
 
 float correctionDerive(float erreur_n_1, float erreur, float mesure) {
