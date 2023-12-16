@@ -203,6 +203,7 @@ float calculeConsigne(int phase, float t) {
   float temperatureInitiale = courbe[typeCuisson][phase].t0;
   float maxTemp = courbe[typeCuisson][phase].t1;
   bool parametrable = courbe[typeCuisson][phase].parametrable;
+  float consigne;
 
   if (parametrable) {
     maxTemp = userDefinedMaxTemp;
@@ -212,18 +213,22 @@ float calculeConsigne(int phase, float t) {
   }  
   // phase départ cuisson
   if (phase == 0) {
-    float consigne = pente * t / 3600 + consigneInitiale;
-    if (consigne <= maxTemp) {
-      return consigne;
-    }
-    return maxTemp;
+    consigne = pente * t / 3600 + consigneInitiale;
+    //if (consigne > maxTemp) {
+    //  consigne = maxTemp;
+    //}
+    return consigne;
   }
   // phases cuisson
   // si température initiale inférieure à la température actuelle, on part de la température actuelle
   if (temperatureInitiale < temperatureMoyenne) { 
     temperatureInitiale = temperatureMoyenne;
   }
-  return pente * t / 3600 + temperatureInitiale;
+  consigne = pente * t / 3600 + temperatureInitiale;
+  //if (consigne > maxTemp) {
+  //  consigne = maxTemp;
+  //}
+  return consigne;
   
 }
 
@@ -582,7 +587,7 @@ ISR(TIMER2_OVF_vect) {
   // on fait partir le timer de 6 pour qu'il compte 250 avant déborder
   // il déborde ainsi toutes les 4 ms
   //TCNT2 = 256 - 250;               // Timer CoNTrole2 250 x 16 µS = 4 ms
-  TCNT2 = 256 - 125;                  //125*16µs 2.096ms
+  TCNT2 = 256 - 125;                  //125*16µs 2ms
   if (varCompteurTimer++ > 125) {  // 62 * 4 ms = 248 ms //125* 4*s = 500ms
     varCompteurTimer = 0;
 
