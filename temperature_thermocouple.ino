@@ -94,13 +94,13 @@ boolean cuissonTerminee;
 
 // constantes de correction
 // basse temperature
-double Kp_basse_temperature = 0,014696416;      //2;
-float Ki_basse_temperature = 919,662;  // 0.00038
-double Kd_basse_temperature = 229,9155;  // 10000
+float Kp_basse_temperature = 0.014696416;      //2;
+float Ki_basse_temperature = 919.662;  // 0.00038
+float Kd_basse_temperature = 229.9155;  // 10000
 //haute temperature
-double Kp_haute_temperature =  0,014696416;      //2;
-float Ki_haute_temperature = 919,662;  // 0.00038
-double Kd_haute_temperature = 229,9155;  // 10000
+float Kp_haute_temperature = 0.014696416;      //2;
+float Ki_haute_temperature = 919.662;  // 0.00038
+float Kd_haute_temperature = 229.9155;  // 10000
 
 double dt = 0.25;      // période échantillonage = 0.25s à rapprocher du timer 
 double integration = 0.;
@@ -750,7 +750,7 @@ void loop() {
       mesures[i] = temperatureActuelle;
     }
     temperatureMoyenne= calculTemperatureMoyenne(temperatureActuelle);
-    consigneInitiale = temperatureMoyenne + 10; // départ immédiat
+    consigneInitiale = temperatureMoyenne; // départ immédiat
     initialisation = false;
   }
 
