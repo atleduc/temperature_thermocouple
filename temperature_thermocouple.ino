@@ -850,6 +850,8 @@ void loop() {
           Serial.print(";");
           Serial.print(consigne);
           Serial.print(";");
+          Serial.print(dureePhase);
+          Serial.print(";");
         }
         if (STATE == CUISSON_EN_COURS) {
           if (changePhase(consigne, temperatureMoyenne, phaseEnCours, dureePhase, tDecalePhase)) {
@@ -877,6 +879,8 @@ void loop() {
           Serial.print(temperatureMoyenne);
           Serial.print(";");
           Serial.print(ratio);
+          Serial.print(";");
+          Serial.print(dureePhase);
           Serial.print(";");
         }
       }
