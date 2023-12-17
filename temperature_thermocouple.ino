@@ -97,18 +97,18 @@ boolean cuissonTerminee;
 // a = 86.68 °C
 //
 // basse temperature
-double Kp_basse_temperature = 0.014696416; // 
+float Kp_basse_temperature = 8; // 0.014696416
 float Ki_basse_temperature = 919.662;      // 1/Ki is used after
-double Kd_basse_temperature = 229.9155;    // 10000
+float Kd_basse_temperature = 229.9155;    // 10000
 //haute temperature
-double Kp_haute_temperature =  0.014696416; //
+float Kp_haute_temperature = 10 ; // 0.014696416
 float Ki_haute_temperature = 919.662;       // 1/Ki is used after
-double Kd_haute_temperature = 229.9155;     // 
+float Kd_haute_temperature = 229.9155;     // 
 
-double dt = 0.25;      // période échantillonage = 0.25s à rapprocher du timer 
-double integration = 0.;
-double derivation = 0.;
-double erreur_n_1 = 0;
+float dt = 0.25;      // période échantillonage = 0.25s à rapprocher du timer 
+float integration = 0.;
+float derivation = 0.;
+float erreur_n_1 = 0;
 // constantes de système
 const int TEMPERATURE_SEUIL_PID = 600; // seuil de température pour changement paramètres PID
 const int AMPLITUDE_MAX = 1050;   // température max do four (température de travail)
@@ -373,6 +373,23 @@ float calculTemperatureMoyenne(float temperature) {
   totalTemp += temperature;
   return totalTemp/16;
 }
+
+double derivees[10] = {0,0,0,0,0,0,0,0,0,0}; // tableau des mesures de températures aggrégées
+/**
+ * lissage de la dérivée
+ * N = 10 échantillons
+*/
+float filtreDerivee(float derivee) {
+  byte i=0;
+  float totalTemp = 0;
+  for(i=0; i<9; i++) {
+    derivees[9-i] = derivees[8-i];
+    totalTemp += derivees[9-i];
+  }
+  derivees[0] = derivee;
+  totalTemp += derivee;
+  return totalTemp/10;
+}
 /**
  * Gestion du menu
  */
@@ -578,13 +595,14 @@ void setup() {
   delay(250);
   digitalWrite(L1, LOW);  // éteindre L1
   cycleTermine = true;
-  Serial.println("erreur;correctionP;Integration;Derivation;commande;mesure;ratio;consigne");
+  Serial.println("erreur;correctionP;Integ;Deriv;D filtree;commande;mesure;ratio;consigne;dureePhase");
 }
 
 byte varCompteurTimer = 0;  // La variable compteur
 byte compteurEchantillon = 0;
 float ratio;
 bool stopCuisson = false;
+float derivationFiltree = 0.0;
 // Routine d'interruption
 ISR(TIMER2_OVF_vect) {
   //15625*16µs
@@ -599,20 +617,21 @@ ISR(TIMER2_OVF_vect) {
       compteurEchantillon = 0;
       cycleTermine = true;
       if (STATE != CUISSON_REFROISDISSEMENT && STATE != CUISSON_TERMINEE) {
+        // calcul de la consigne
         if (STATE == EN_COURS_EMAIL) {
           consigne = calculeConsigne(phaseEnCours, dureePhase);
         } else {
           consigne = calculeConsigne(phaseEnCours, dureePhase);
         }
-        // calcul de la consigne
-
         // calcul de la commande
         erreur = calculeErreur(consigne, temperatureMoyenne);
+        // calcul du terme dérivé en sur l'erreur lissée
         derivation = correctionDerive(erreur_n_1, erreur, temperatureMoyenne);
+        derivationFiltree = filtreDerivee(derivation);
         erreur_n_1 = erreur;
         CorrectionP = correctionProportionnelle(erreur, temperatureMoyenne);
         integration = correctionIntegral(erreur, integration, temperatureMoyenne);
-        commande = integration + CorrectionP + derivation;
+        commande = integration + CorrectionP + derivationFiltree;
         ratio = round(calculRatio(commande, AMPLITUDE_MAX, nbEchantillons));
       } else {
         ratio = 0;
@@ -846,6 +865,8 @@ void loop() {
           Serial.print(";");
           Serial.print(derivation);
           Serial.print(";");
+          Serial.print(derivationFiltree);
+          Serial.print(";");         
           Serial.print(commande);
           Serial.print(";");
           Serial.print(temperatureMoyenne);
