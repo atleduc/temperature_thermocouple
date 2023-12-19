@@ -75,18 +75,18 @@ LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 double temperatureMoyenne;
 double temperatureActuelle;
 typedef struct {
-  int t0; // temerature de depart
-  int t1; // temperature cible
-  unsigned long pente; // pente
-  int duree; //
-  bool parametrable; 
+  int t0;               // temerature de depart
+  int t1;               // temperature cible
+  unsigned long pente;  // pente
+  int duree;            //
+  bool parametrable;
 } segment;
 
 // temps
 const unsigned long TSec = 1000;
 unsigned long Num_ms, Num_sec, Num_min;
 unsigned long Num_heur, Num_jour, Temps_ms;
-unsigned long t;
+unsigned long timeInSecond;
 
 // indicateurs
 boolean cuissonTerminee;
@@ -96,26 +96,41 @@ boolean cuissonTerminee;
 // retard apparent : t1 = 459.831 secondes
 // a = 86.68 °C
 //
-// basse temperature
-float Kp_basse_temperature = 8; // 0.014696416
-float Ki_basse_temperature = 919.662;      // 1/Ki is used after
-float Kd_basse_temperature = 229.9155;    // 10000
-//haute temperature
-float Kp_haute_temperature = 10 ; // 0.014696416
-float Ki_haute_temperature = 919.662;       // 1/Ki is used after
-float Kd_haute_temperature = 229.9155;     // 
+typedef struct {
+  float Kp;
+  float Ki;
+  float Kd;
+} pid;
 
-float dt = 0.25;      // période échantillonage = 0.25s à rapprocher du timer 
+pid pids[3] = {
+  { 1, 3500, 1500 },    // hautes temp > 400
+  { 2.8, 3000, 1120 },  // intermediate <400
+  { 11.0, 750, 4400 },  // basse temp < 100
+};
+// // basse temperature
+// float Kp_basse_temperature = 8; // 0.014696416
+// float Ki_basse_temperature = 919.662;      // 1/Ki is used after
+// float Kd_basse_temperature = 229.9155;    // 10000
+// //haute temperature
+// float Kp_haute_temperature = 10 ; // 0.014696416
+// float Ki_haute_temperature = 919.662;       // 1/Ki is used after
+// float Kd_haute_temperature = 229.9155;     //
+
+float dt = 0.25;  // période échantillonage = 0.25s à rapprocher du timer
 float integration = 0.;
 float derivation = 0.;
 float erreur_n_1 = 0;
 // constantes de système
-const int TEMPERATURE_SEUIL_PID = 600; // seuil de température pour changement paramètres PID
-const int AMPLITUDE_MAX = 1050;   // température max do four (température de travail)
-int nbEchantillons = 120;  // base de codage pour une valeur de consigne
+const int TEMPERATURE_SEUIL_PID = 600;  // seuil de température pour changement paramètres PID
+const int AMPLITUDE_MAX = 1050;         // température max do four (température de travail)
+int nbEchantillons = 120;               // base de codage pour une valeur de consigne
 
 // cuisson faïence
-int userDefinedMaxTemp = 1030;
+float userDefinedMaxTemp = 1030;  // température paramétrable
+float pente;                      // pente de la courbe de chauffe
+float temperatureInitiale;        // T0 de la courbe de chauffe
+float temperatureFinale;          // T1 de la courbe de chauffe
+
 const int DEFAULT_TEMPERATURE_MAX_EMAIL = 950;
 const int DEFAULT_TEMPERATURE_MAX_BISCUIT = 910;
 const int NB_TYPES = 2;
@@ -124,20 +139,20 @@ segment courbe[NB_TYPES][NB_PHASES] = {
   {
     // cuisson faience
     // pentes de chauffe en °C / heure
-    { 0, 100, 100, 0 , false},    // 0 à 100° à 100°C/heure
+    { 0, 100, 100, 0, false },    // 0 à 100° à 100°C/heure
     { 100, 100, 0, 1, false },    // 100° pendant 10 minutes
     { 100, 400, 100, 0, false },  // 105 à 400° à 100°C/heure
     { 400, 400, 0, 15, false },   // 400° pendant 15 min
-    { 400, 1030, 150, 0, true},   // 400 à 1030° à 150°C/heure
-    { 1030, 1030, 0, 30, true},   // 1030° pendant 30 min
+    { 400, 1030, 150, 0, true },  // 400 à 1030° à 150°C/heure
+    { 1030, 1030, 0, 30, true },  // 1030° pendant 30 min
   },
   {
     // cuisson email
     // pentes de chauffe en °C / heure
-    { 0, 100, 100, 0, false },     // 0 à 100° à 100°C/heure
-    { 105, 105, 0, 10, false },    // 95 à 105° pendant 10 minutes
-    { 105, 400, 100, 0, false },   // 105 à 400° à 100°C/heure
-    { 400, 400, 0, 15, false },    // 400° pendant 15 min
+    { 0, 100, 100, 0, false },    // 0 à 100° à 100°C/heure
+    { 105, 105, 0, 10, false },   // 95 à 105° pendant 10 minutes
+    { 105, 400, 100, 0, false },  // 105 à 400° à 100°C/heure
+    { 400, 400, 0, 15, false },   // 400° pendant 15 min
     { 400, 1030, 150, 0, true },  // 400 à 1030° à 150°C/heure
     { 1030, 1030, 0, 30, true },  // 1030° pendant 30 min
   },
@@ -164,76 +179,23 @@ byte degre[8] = {
   0b00000
 };
 bool cycleTermine;  // flag de fin d'une période
-// fonctions
-/**
- *  calcul de l'erreur entre la consigne et la mesure
- */
-float calculeErreur(float consigne, float mesure) {
-  return consigne - mesure;
-}
-/**
- * Correction statique PID
- */
-float correctionProportionnelle(float erreur, float mesure) {
-  if (mesure < TEMPERATURE_SEUIL_PID) {
-    return erreur * Kp_basse_temperature;
-  } 
-    return erreur * Kp_haute_temperature;
-}
-
-float correctionIntegral(float erreur, float integration, float mesure) {
-  // Ki = 1/Ti
-   if (mesure < TEMPERATURE_SEUIL_PID) {
-     return   dt * nbEchantillons * erreur / Ki_basse_temperature  + integration ;
-   }
-  return dt * nbEchantillons * erreur / Ki_haute_temperature  + integration;
-}
-
-float correctionDerive(float erreur_n_1, float erreur, float mesure) {
-  if (mesure < TEMPERATURE_SEUIL_PID) { //todo
-    return (erreur - erreur_n_1) * Kd_basse_temperature * dt / (nbEchantillons);  
-  } else {
-    return (erreur - erreur_n_1) * Kd_haute_temperature * dt / (nbEchantillons);  
-  }
-  
-}
 
 /* calcul de la consigne
- *  phase index de la phase
- *  t en seconde 
+ *  @param pente  pente de la phase
+ *  @param tInit  température initiale
+ *  @param tEnd   température finale (cible)
+ *  @param time   temps écoulé depuis le début de la phase en seconde
 */
-float calculeConsigne(int phase, float t) {
-  float pente = courbe[typeCuisson][phase].pente;
-  float temperatureInitiale = courbe[typeCuisson][phase].t0;
-  float maxTemp = courbe[typeCuisson][phase].t1;
-  bool parametrable = courbe[typeCuisson][phase].parametrable;
-  float consigne;
-
-  if (parametrable) {
-    maxTemp = userDefinedMaxTemp;
-  }
+float calculeConsigne(float pente, float tInit, float tEnd, float time) {
   if (pente == 0) {
-    return maxTemp;
-  }  
+    return tEnd;
+  }
   // phase départ cuisson
-  if (phase == 0) {
-    consigne = pente * t / 3600 + consigneInitiale;
-    //if (consigne > maxTemp) {
-    //  consigne = maxTemp;
-    //}
-    return consigne;
+  if (pente == 0) {
+    return pente * time / 3600 + consigneInitiale;
   }
   // phases cuisson
-  // si température initiale inférieure à la température actuelle, on part de la température actuelle
-  if (temperatureInitiale < temperatureMoyenne) { 
-    temperatureInitiale = temperatureMoyenne;
-  }
-  consigne = pente * t / 3600 + temperatureInitiale;
-  //if (consigne > maxTemp) {
-  //  consigne = maxTemp;
-  //}
-  return consigne;
-  
+  return pente * time / 3600 + temperatureInitiale;
 }
 
 float calculRatio(float consigne, int amplitude, int nbEchantillon) {
@@ -249,16 +211,16 @@ float calculRatio(float consigne, int amplitude, int nbEchantillon) {
  *  Calcul du changement de phase 
  *  consigne : température de consigne
  *  phase : index de la phase
- *  t : durée écoulée de la phase
+ *  time : durée écoulée de la phase
  */
-boolean changePhase(float consigne, float mesure, int phase, float t, float &tDecalage) {
+boolean changePhase(float consigne, float mesure, int phase, float time, float &tDecalage) {
   if (courbe[typeCuisson][phase].pente == 0) {
     // si on a pas atteint la temperature
     if (mesure * 1.05 < courbe[typeCuisson][phase].t0) {
-      tDecalage = t;
+      tDecalage = time;
       return false;
     }
-    return t - tDecalage > courbe[typeCuisson][phase].duree * 60;
+    return time - tDecalage > courbe[typeCuisson][phase].duree * 60;
   } else {
     float maxTemp = courbe[typeCuisson][phase].t1;
     if (courbe[typeCuisson][phase].parametrable) {
@@ -267,6 +229,24 @@ boolean changePhase(float consigne, float mesure, int phase, float t, float &tDe
     return maxTemp <= consigne;
   }
 }
+
+/**
+ * paramètres pour la nouvelle phase
+*/
+void setPhaseParameters(int typeCuisson, int phase) {
+  pente = courbe[typeCuisson][phase].pente;
+  temperatureInitiale = courbe[typeCuisson][phase].t0;
+  if (temperatureInitiale < temperatureMoyenne) {
+    // on part de la temp moyenne si > temperature initiale
+    temperatureInitiale = temperatureMoyenne;
+  }
+
+  temperatureFinale = courbe[typeCuisson][phase].t1;
+  if (courbe[typeCuisson][phase].parametrable && temperatureFinale > userDefinedMaxTemp) {
+    temperatureFinale = userDefinedMaxTemp;  // cible si temp paramétrable
+  }
+}
+
 /* Affichage horloge */
 void displayTime(unsigned long heure, unsigned long minutes, unsigned long secondes) {
   lcd.setCursor(0, 1);
@@ -360,35 +340,35 @@ float readTemp(Adafruit_MAX31856 &maxTh, float temp) {
  * Calcul de la température moyenne
  * 
 */
-double mesures[16]; // tableau des mesures de températures aggrégées
+double mesures[16];  // tableau des mesures de températures aggrégées
 
 float calculTemperatureMoyenne(float temperature) {
-  byte i=0;
+  byte i = 0;
   float totalTemp = 0;
-  for(i=0; i<15; i++) {
-    mesures[15-i] = mesures[14-i];
-    totalTemp += mesures[15-i];
+  for (i = 0; i < 15; i++) {
+    mesures[15 - i] = mesures[14 - i];
+    totalTemp += mesures[15 - i];
   }
   mesures[0] = temperature;
   totalTemp += temperature;
-  return totalTemp/16;
+  return totalTemp / 16;
 }
 
-double derivees[10] = {0,0,0,0,0,0,0,0,0,0}; // tableau des mesures de températures aggrégées
+double derivees[10] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };  // tableau des mesures de températures aggrégées
 /**
  * lissage de la dérivée
  * N = 10 échantillons
 */
 float filtreDerivee(float derivee) {
-  byte i=0;
+  byte i = 0;
   float totalTemp = 0;
-  for(i=0; i<9; i++) {
-    derivees[9-i] = derivees[8-i];
-    totalTemp += derivees[9-i];
+  for (i = 0; i < 9; i++) {
+    derivees[9 - i] = derivees[8 - i];
+    totalTemp += derivees[9 - i];
   }
   derivees[0] = derivee;
   totalTemp += derivee;
-  return totalTemp/10;
+  return totalTemp / 10;
 }
 /**
  * Gestion du menu
@@ -609,7 +589,7 @@ ISR(TIMER2_OVF_vect) {
   // on fait partir le timer de 6 pour qu'il compte 250 avant déborder
   // il déborde ainsi toutes les 4 ms
   //TCNT2 = 256 - 250;               // Timer CoNTrole2 250 x 16 µS = 4 ms
-  TCNT2 = 256 - 125;                  //125*16µs 2ms
+  TCNT2 = 256 - 125;               //125*16µs 2ms
   if (varCompteurTimer++ > 125) {  // 62 * 4 ms = 248 ms //125* 4*s = 500ms
     varCompteurTimer = 0;
 
@@ -618,19 +598,45 @@ ISR(TIMER2_OVF_vect) {
       cycleTermine = true;
       if (STATE != CUISSON_REFROISDISSEMENT && STATE != CUISSON_TERMINEE) {
         // calcul de la consigne
-        if (STATE == EN_COURS_EMAIL) {
-          consigne = calculeConsigne(phaseEnCours, dureePhase);
-        } else {
-          consigne = calculeConsigne(phaseEnCours, dureePhase);
-        }
+        consigne = calculeConsigne(pente, temperatureInitiale, temperatureFinale, timeInSecond);
+
         // calcul de la commande
-        erreur = calculeErreur(consigne, temperatureMoyenne);
-        // calcul du terme dérivé en sur l'erreur lissée
-        derivation = correctionDerive(erreur_n_1, erreur, temperatureMoyenne);
+
+        // TODO adapter les coefficient en fonction de la commande possible (plus agressif au début)
+        erreur = consigne - temperatureMoyenne;
+
+        float kp, ki, kd;
+        if (temperatureMoyenne < 100) {
+          kp = pids[2].Kp;
+          ki = pids[2].Ki;
+          kd = pids[2].Kd;
+        } else if (temperatureMoyenne < 400) {
+          kp = pids[1].Kp;
+          ki = pids[1].Ki;
+          kd = pids[1].Kd;
+        } else {
+          kp = pids[0].Kp;
+          ki = pids[0].Ki;
+          kd = pids[0].Kd;
+        }
+        // terme proportionnel
+
+        CorrectionP = erreur * kp;
+
+        // calcul du terme intégral
+        // Ki = 1/Ti
+
+        integration = dt * nbEchantillons * erreur / ki + integration;
+
+        // calcul du terme dérivé
+        if (temperatureMoyenne < TEMPERATURE_SEUIL_PID) {
+          derivation = (erreur - erreur_n_1) * kd * dt / (nbEchantillons);
+        } else {
+          derivation = (erreur - erreur_n_1) * kd * dt / (nbEchantillons);
+        }
+        // lissage terme dérivé
         derivationFiltree = filtreDerivee(derivation);
         erreur_n_1 = erreur;
-        CorrectionP = correctionProportionnelle(erreur, temperatureMoyenne);
-        integration = correctionIntegral(erreur, integration, temperatureMoyenne);
         commande = integration + CorrectionP + derivationFiltree;
         ratio = round(calculRatio(commande, AMPLITUDE_MAX, nbEchantillons));
       } else {
@@ -642,12 +648,12 @@ ISR(TIMER2_OVF_vect) {
         if (compteurEchantillon < ratio) {
           digitalWrite(L1, HIGH);
         } else {
-          digitalWrite(L1, LOW);  
+          digitalWrite(L1, LOW);
         }
         break;
       default:
-        digitalWrite(L1, LOW); 
-        break; 
+        digitalWrite(L1, LOW);
+        break;
     }
   }
 }
@@ -662,7 +668,7 @@ void checkMenu() {
 
   int button1State = read_LCD_buttons();
   bool menuChanged = false;
-  // check if the first button is pressed  
+  // check if the first button is pressed
   switch (button1State)  // depending on which button was pushed, we perform an action
   {
     case btnRIGHT:
@@ -724,6 +730,7 @@ void checkMenu() {
           case CUISSON_EN_COURS:
             stopCuisson = false;
             cuissonTerminee = false;
+            setPhaseParameters(typeCuisson, phaseEnCours);
             tInit = millis() / TSec;
             break;
           case CUISSON_REFROISDISSEMENT:
@@ -766,71 +773,70 @@ void checkMenu() {
 void loop() {
   checkMenu();
   temperatureActuelle = readTemp(maxthermo, temperatureActuelle);
-  temperatureMoyenne= calculTemperatureMoyenne(temperatureActuelle);
+  temperatureMoyenne = calculTemperatureMoyenne(temperatureActuelle);
   if (initialisation == true) {
     byte i;
-    for (i=0; i<16; i++) {
+    for (i = 0; i < 16; i++) {
       mesures[i] = temperatureActuelle;
     }
-    temperatureMoyenne= calculTemperatureMoyenne(temperatureActuelle);
-    consigneInitiale = temperatureMoyenne + 10; // départ immédiat
+    temperatureMoyenne = calculTemperatureMoyenne(temperatureActuelle);
+    consigneInitiale = temperatureMoyenne + 10;  // départ immédiat
+
     initialisation = false;
   }
 
   switch (STATE) {
     case INITIAL:
-      menuEnCours = 1; 
-      
-      lcd.setCursor(10, 0);   
+      menuEnCours = 1;
+      lcd.setCursor(10, 0);
       lcd.print(temperatureActuelle);
-      lcd.setCursor(15, 1);   
-      lcd.print("-"); break;
+      lcd.setCursor(15, 1);
+      lcd.print("-");
+      break;
     case CUISSON_EN_COURS:
       menuEnCours = 0;
-      //lcd.print("*"); break;
+
     case CUISSON_REFROISDISSEMENT:
       menuEnCours = 0;
       lcd.setCursor(15, 1);
-      lcd.print("_"); break;
+      lcd.print("_");
+      break;
     case CUISSON_TERMINEE:
       menuEnCours = 0;
       lcd.setCursor(15, 1);
-      lcd.print("x"); break;
+      lcd.print("x");
+      break;
     case CHOIX_TEMP:
       menuEnCours = 1;
       lcd.setCursor(15, 1);
       lcd.print("C");
       lcd.setCursor(4, 1);
-      lcd.print(userDefinedMaxTemp); break;
+      lcd.print(userDefinedMaxTemp);
+      break;
   }
   if (menuEnCours) {
     lcd.setCursor(0, 0);
     lcd.print(MenuItems[ETAT_MENU][0]);
     lcd.setCursor(0, 1);
     lcd.print(MenuItems[ETAT_MENU][1]);
-    
+
   } else {
     if (STATE == CUISSON_EN_COURS || STATE == STOP || STATE == CUISSON_REFROISDISSEMENT || STATE == CUISSON_TERMINEE) {
       // Lecture de l'horloge interne en ms
       Temps_ms = millis();  // 2^32 secondes = 49.71 jours
       // Calcul des secondes
-      t = Temps_ms / TSec;
+      timeInSecond = Temps_ms / TSec;
 
-      dureePhase = t - tInit;
-      Num_sec = t % 60;
-
+      dureePhase = timeInSecond - tInit;
+      Num_sec = timeInSecond % 60;
       // Calcul des minutes
       Num_min = (Temps_ms / (TSec * 60)) % 60;
       // Calcul des heures
       Num_heur = (Temps_ms / (TSec * 3600)) % 60;
 
-      
       if (STATE != CUISSON_REFROISDISSEMENT && STATE != CUISSON_TERMINEE && stopCuisson == false) {
         // calcul de la consigne
-        if (STATE == CUISSON_EN_COURS) {
-          consigne = calculeConsigne(phaseEnCours, dureePhase);
-          //Serial.println(consigne);
-        } else {
+        if (STATE != CUISSON_EN_COURS) {
           consigne = userDefinedMaxTemp;
         }
         // affichage température
@@ -843,13 +849,9 @@ void loop() {
           // affichage temps écoulé
           if (STATE == CUISSON_EN_COURS) {
             displayPhase(phaseEnCours, dureePhase);
-            float maxTemp = courbe[typeCuisson][phaseEnCours].t1;
-            if (courbe[typeCuisson][phaseEnCours].parametrable) {
-              maxTemp = userDefinedMaxTemp;
-            }
-            displayGoal(temperatureMoyenne, maxTemp);
-          } else { //TODO
-            displayGoal(temperatureMoyenne, userDefinedMaxTemp);
+            displayGoal(temperatureMoyenne, temperatureFinale);
+          } else {  //TODO
+            displayGoal(temperatureMoyenne, temperatureFinale);
             displayTime(Num_heur, Num_min, Num_sec);
           }
         }
@@ -866,7 +868,7 @@ void loop() {
           Serial.print(derivation);
           Serial.print(";");
           Serial.print(derivationFiltree);
-          Serial.print(";");         
+          Serial.print(";");
           Serial.print(commande);
           Serial.print(";");
           Serial.print(temperatureMoyenne);
@@ -880,7 +882,7 @@ void loop() {
         }
         if (STATE == CUISSON_EN_COURS) {
           if (changePhase(consigne, temperatureMoyenne, phaseEnCours, dureePhase, tDecalePhase)) {
-            tInit = t;
+            tInit = timeInSecond;
             tDecalePhase = 0;
             phaseEnCours++;
             derivation = 0;
@@ -888,6 +890,8 @@ void loop() {
             integration = 0;
             if (phaseEnCours >= NB_PHASES) {
               cuissonTerminee = true;
+            } else {
+              setPhaseParameters(typeCuisson, phaseEnCours);
             }
           }
         }
