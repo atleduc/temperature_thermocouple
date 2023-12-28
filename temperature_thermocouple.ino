@@ -194,8 +194,8 @@ float calculeConsigne(float pente, float tInit, float tEnd, float time) {
   return pente * time / 3600 + temperatureInitiale;
 }
 
-float calculRatio(float commande, int amplitude, int nbEchantillon) {
-  float ratio = commande * nbEchantillon / amplitude;
+float calculRatio(float commande) {
+  float ratio = commande * nbEchantillons / AMPLITUDE_MAX;
   if (ratio > nbEchantillons) {
     return nbEchantillons;
   } else if (ratio < 0) {
@@ -638,14 +638,15 @@ ISR(TIMER2_OVF_vect) {
         commande = integration + CorrectionP + derivationFiltree;
         if (commande > AMPLITUDE_MAX) commande = AMPLITUDE_MAX;
         if (commande  < 0) commande = 0;
-        ratio = round(calculRatio(commande, AMPLITUDE_MAX, nbEchantillons));
+        ratio = round(calculRatio(commande));
       } else {
         ratio = 0;
       }
     }
     switch (STATE) {
       case CUISSON_EN_COURS:
-        if (compteurEchantillon < ratio) {
+      // start with 0 to avoid wrong temperature measure
+        if (compteurEchantillon > (nbEchantillons - ratio)) { 
           digitalWrite(L1, HIGH);
         } else {
           digitalWrite(L1, LOW);
