@@ -103,9 +103,9 @@ typedef struct {
 } pid;
 
 pid pids[3] = {
-  { 1, 3500, 1500 },    // hautes temp > 400
-  { 2.8, 3000, 1120 },  // intermediate <400
-  { 11.0, 750, 4400 },  // basse temp < 100
+  { 25, 250, 15000 },    // hautes temp > 400
+  { 25, 250, 15000 },  // intermediate <400
+  { 25, 250, 15000 },  // basse temp < 100
 };
 // // basse temperature
 // float Kp_basse_temperature = 8; // 0.014696416
@@ -122,7 +122,7 @@ float derivation = 0.;
 float erreur_n_1 = 0;
 // constantes de système
 const int TEMPERATURE_SEUIL_PID = 600;  // seuil de température pour changement paramètres PID
-const int AMPLITUDE_MAX = 1050;         // température max do four (température de travail)
+const int AMPLITUDE_MAX = 1100;         // température max do four (température de travail)
 int nbEchantillons = 120;               // base de codage pour une valeur de consigne
 
 // cuisson faïence
@@ -190,16 +190,12 @@ float calculeConsigne(float pente, float tInit, float tEnd, float time) {
   if (pente == 0) {
     return tEnd;
   }
-  // phase départ cuisson
-  if (pente == 0) {
-    return pente * time / 3600 + consigneInitiale;
-  }
   // phases cuisson
   return pente * time / 3600 + temperatureInitiale;
 }
 
-float calculRatio(float consigne, int amplitude, int nbEchantillon) {
-  float ratio = consigne * nbEchantillon / amplitude;
+float calculRatio(float commande, int amplitude, int nbEchantillon) {
+  float ratio = commande * nbEchantillon / amplitude;
   if (ratio > nbEchantillons) {
     return nbEchantillons;
   } else if (ratio < 0) {
@@ -245,6 +241,7 @@ void setPhaseParameters(int typeCuisson, int phase) {
   if (courbe[typeCuisson][phase].parametrable && temperatureFinale > userDefinedMaxTemp) {
     temperatureFinale = userDefinedMaxTemp;  // cible si temp paramétrable
   }
+  // dureePhase
 }
 
 /* Affichage horloge */
@@ -362,13 +359,13 @@ double derivees[10] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };  // tableau des mesures 
 float filtreDerivee(float derivee) {
   byte i = 0;
   float totalTemp = 0;
-  for (i = 0; i < 9; i++) {
-    derivees[9 - i] = derivees[8 - i];
-    totalTemp += derivees[9 - i];
+  for (i = 0; i < 5; i++) {
+    derivees[5 - i] = derivees[4 - i];
+    totalTemp += derivees[5 - i];
   }
   derivees[0] = derivee;
   totalTemp += derivee;
-  return totalTemp / 10;
+  return totalTemp / 5;
 }
 /**
  * Gestion du menu
@@ -598,7 +595,7 @@ ISR(TIMER2_OVF_vect) {
       cycleTermine = true;
       if (STATE != CUISSON_REFROISDISSEMENT && STATE != CUISSON_TERMINEE) {
         // calcul de la consigne
-        consigne = calculeConsigne(pente, temperatureInitiale, temperatureFinale, timeInSecond);
+        consigne = calculeConsigne(pente, temperatureInitiale, temperatureFinale, dureePhase);
 
         // calcul de la commande
 
@@ -627,7 +624,8 @@ ISR(TIMER2_OVF_vect) {
         // Ki = 1/Ti
 
         integration = dt * nbEchantillons * erreur / ki + integration;
-
+        if(integration > 1000) integration = 1000;
+        if(integration < -1000) integration = -1000;
         // calcul du terme dérivé
         if (temperatureMoyenne < TEMPERATURE_SEUIL_PID) {
           derivation = (erreur - erreur_n_1) * kd * dt / (nbEchantillons);
@@ -638,6 +636,8 @@ ISR(TIMER2_OVF_vect) {
         derivationFiltree = filtreDerivee(derivation);
         erreur_n_1 = erreur;
         commande = integration + CorrectionP + derivationFiltree;
+        if (commande > AMPLITUDE_MAX) commande = AMPLITUDE_MAX;
+        if (commande  < 0) commande = 0;
         ratio = round(calculRatio(commande, AMPLITUDE_MAX, nbEchantillons));
       } else {
         ratio = 0;
@@ -885,9 +885,9 @@ void loop() {
             tInit = timeInSecond;
             tDecalePhase = 0;
             phaseEnCours++;
-            derivation = 0;
-            CorrectionP = 0;
-            integration = 0;
+            //derivation = 0;
+            //CorrectionP = 0;
+            //integration = 0;
             if (phaseEnCours >= NB_PHASES) {
               cuissonTerminee = true;
             } else {
