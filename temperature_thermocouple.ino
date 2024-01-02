@@ -10,58 +10,71 @@ Adafruit_MAX31856 maxthermo = Adafruit_MAX31856(2, 11, 12, 13);
 // use hardware SPI, pass in the CS pin and using SPI1
 //Adafruit_MAX31856 maxthermo = Adafruit_MAX31856(10, &SPI1);
 
+// next Menu
+const byte NEXT_MENU = 0;
+const byte NEXT_STATE = 1;
 // states
 const byte INITIAL = 0;
-const byte CUISSON_EN_COURS = 1;
-const byte CUISSON_REFROISDISSEMENT = 2;
-const byte CUISSON_TERMINEE = 3;
-const byte CHOIX_TEMP = 4;
+const byte CHOIX_TEMP = 1;
+const byte CUISSON_EN_COURS = 2;
+const byte CUISSON_REFROISDISSEMENT = 3;
+const byte CUISSON_TERMINEE = 4;
+
 
 // menus
 const byte MENU_INITIAL_1 = 0;
 const byte MENU_INITIAL_2 = 1;
-const byte MENU_INTERRUPTION_1 = 2;
-const byte MENU_INTERRUPTION_2 = 3;
-const byte TEMP_EMAIL = 4;
-const byte MENU_REPRENDRE_1 = 5;
-const byte MENU_REPRENDRE_2 = 6;
-const byte EN_COURS = 7;
-const byte STOP = 8;
-const byte EN_COURS_EMAIL = 9;
-const byte MENU_REPRENDRE_CF_1 = 10;
-const byte MENU_REPRENDRE_CF_2 = 11;
-const byte TEMP_BISCUIT = 12;
-const byte LANCER_CUISSON_1 = 13;
-const byte ARRET_CUISSON = 14;
-const byte LANCER_CUISSON_EMAIL = 15;
-const byte ARRET_CUISSON_EMAIL = 16;
+
+const byte TEMP_EMAIL = 0;
+const byte TEMP_BISCUIT = 1;
+const byte LANCER_CUISSON_1 = 2;
+
+const byte EN_COURS = 0;
+const byte MENU_INTERRUPTION_1 = 1;
+const byte MENU_INTERRUPTION_2 = 2;
+
+const byte STOP = 0;
+const byte MENU_REPRENDRE_1 = 1;
+const byte MENU_REPRENDRE_2 = 2;
 
 const byte ACTION_MENU = 0;
 const byte ACTION_UP = 1;
 const byte ACTION_DOWN = 2;
 const byte ACTION_SELECT = 3;
-const byte NEXT_STATE = 4;
+//const byte ACTION_NONE = 4;
 
-byte Menu[17][5];
+byte Menu[5][3][4][2];
 
-const char *MenuItems[][2] = {
-  { ">Biscuit", " Email  " },  //0
-  { " Biscuit", ">Email  " },
-  { ">Continuer      ", " Stopper        " },
-  { " Continuer      ", ">Stopper        " },
-  { " Temp Email: ", "+-" },
-  { ">Reprendre      ", " Stopper        " },  //5
-  { " Reprendre      ", ">Stopper        " },
-  { " CUISSON       ", " EN COURS        " },
-  { " CUISSON       ", " STOPPEE       " },
-  { "CUISSON EMAIL  ", "En coursM11     " },
-  { ">CUISSON EMAIL  ", "Stopper M12     " },  //10
-  { " CUISSON EMAIL", ">Stopper  M12     " },
-  { "Temp Biscuit   ", "+-" },
-  { "DEPART CUISSON ?", "VALID = SELECT " },
-  { "ARRET CUISSON ?", "VALID = SELECT " },  //14
-  { "DEPART CUISSON ?", "VALID = SELECT " },
-  { "ARRET CUISSON ?", "VALID = SELECT " }  //14
+const char *MenuItems[][5][2] = {
+  // INITIAL
+  {
+    { ">Cuisson Biscuit", " Cuisson Email  " },
+    { " Cuisson Biscuit", ">Cuisson Email  " },
+  },
+  // CHOIX_TEMP
+  {
+    { "Temp Email   ", "+-" },
+    { "Temp Biscuit   ", "+-" },
+    { "DEPART CUISSON ?", "VALID = SELECT " },
+  },
+  // CUISSON_EN_COURS
+  {
+    { "      ", "         " },
+    { ">Continuer      ", " Stopper        " },
+    { " Continuer      ", ">Stopper        " },
+  },
+  // CUISSON_REFROIDISSEMENT
+  {
+    { " CUISSON       ", " STOPPEE        " },
+    { ">Reprendre      ", " Stopper        " },
+    { " Reprendre      ", ">Stopper        " },
+  },
+  // CUISSON_TERMINNEE
+  {
+    { ">Reprendre      ", " Stopper        " },
+    { " Reprendre      ", ">Stopper        " },
+    { " CUISSON       ", " EN COURS        " },
+  }
 };
 
 byte ETAT_MENU;
@@ -88,10 +101,6 @@ unsigned long Num_ms, Num_sec, Num_min;
 unsigned long Num_heur, Num_jour, Temps_ms;
 unsigned long timeInSecond;
 
-// indicateurs
-boolean cuissonTerminee;
-
-
 // constantes de correction établies par étude de la réponse indicielle
 // retard apparent : t1 = 459.831 secondes
 // a = 86.68 °C
@@ -103,7 +112,7 @@ typedef struct {
 } pid;
 
 pid pids[3] = {
-  { 25, 250, 15000 },    // hautes temp > 400
+  { 25, 250, 15000 },  // hautes temp > 400
   { 25, 250, 15000 },  // intermediate <400
   { 25, 250, 15000 },  // basse temp < 100
 };
@@ -319,14 +328,14 @@ float readTemp(Adafruit_MAX31856 &maxTh, float temp) {
   } else {
     uint8_t fault = maxTh.readFault();
     if (fault) {
-      if (fault & MAX31856_FAULT_CJRANGE) Serial.println("Cold Junction Range Fault");
-      if (fault & MAX31856_FAULT_TCRANGE) Serial.println("Thermocouple Range Fault");
-      if (fault & MAX31856_FAULT_CJHIGH) Serial.println("Cold Junction High Fault");
-      if (fault & MAX31856_FAULT_CJLOW) Serial.println("Cold Junction Low Fault");
-      if (fault & MAX31856_FAULT_TCHIGH) Serial.println("Thermocouple High Fault");
-      if (fault & MAX31856_FAULT_TCLOW) Serial.println("Thermocouple Low Fault");
-      if (fault & MAX31856_FAULT_OVUV) Serial.println("Over/Under Voltage Fault");
-      if (fault & MAX31856_FAULT_OPEN) Serial.println("Thermocouple Open Fault");
+      if (fault & MAX31856_FAULT_CJRANGE) Serial.println(F("Cold Junction Range Fault"));
+      if (fault & MAX31856_FAULT_TCRANGE) Serial.println(F("Thermocouple Range Fault"));
+      if (fault & MAX31856_FAULT_CJHIGH) Serial.println(F("Cold Junction High Fault"));
+      if (fault & MAX31856_FAULT_CJLOW) Serial.println(F("Cold Junction Low Fault"));
+      if (fault & MAX31856_FAULT_TCHIGH) Serial.println(F("Thermocouple High Fault"));
+      if (fault & MAX31856_FAULT_TCLOW) Serial.println(F("Thermocouple Low Fault"));
+      if (fault & MAX31856_FAULT_OVUV) Serial.println(F("Over/Under Voltage Fault"));
+      if (fault & MAX31856_FAULT_OPEN) Serial.println(F("Thermocouple Open Fault"));
     }
     Serial.println(fault);
     Serial.println("Conversion not complete!");
@@ -403,121 +412,148 @@ int read_LCD_buttons() {
 
 // create two variables to store the current menu option
 // and the previous menu option
-int menuOption = 0;
-int prevMenuOption = 2;
+byte menuOption = 0;
+byte prevMenuOption = 2;
 
 bool menuEnCours = 0;
+
+void setupMenu() {
+  Menu[INITIAL][MENU_INITIAL_1][ACTION_MENU][NEXT_MENU] = MENU_INITIAL_1;
+  Menu[INITIAL][MENU_INITIAL_1][ACTION_MENU][NEXT_STATE] = INITIAL;
+  Menu[INITIAL][MENU_INITIAL_1][ACTION_UP][NEXT_MENU] = MENU_INITIAL_1;
+  Menu[INITIAL][MENU_INITIAL_1][ACTION_UP][NEXT_STATE] = INITIAL;
+  Menu[INITIAL][MENU_INITIAL_1][ACTION_DOWN][NEXT_MENU] = MENU_INITIAL_2;
+  Menu[INITIAL][MENU_INITIAL_1][ACTION_DOWN][NEXT_STATE] = INITIAL;
+  Menu[INITIAL][MENU_INITIAL_1][ACTION_SELECT][NEXT_MENU] = TEMP_BISCUIT;
+  Menu[INITIAL][MENU_INITIAL_1][ACTION_SELECT][NEXT_STATE] = CHOIX_TEMP;
+
+  Menu[INITIAL][MENU_INITIAL_2][ACTION_MENU][NEXT_MENU] = MENU_INITIAL_1;
+  Menu[INITIAL][MENU_INITIAL_2][ACTION_MENU][NEXT_STATE] = INITIAL;
+  Menu[INITIAL][MENU_INITIAL_2][ACTION_UP][NEXT_MENU] = MENU_INITIAL_1;
+  Menu[INITIAL][MENU_INITIAL_2][ACTION_UP][NEXT_STATE] = INITIAL;
+  Menu[INITIAL][MENU_INITIAL_2][ACTION_DOWN][NEXT_MENU] = MENU_INITIAL_2;
+  Menu[INITIAL][MENU_INITIAL_2][ACTION_DOWN][NEXT_STATE] = INITIAL;
+  Menu[INITIAL][MENU_INITIAL_2][ACTION_SELECT][NEXT_MENU] = TEMP_EMAIL;
+  Menu[INITIAL][MENU_INITIAL_2][ACTION_SELECT][NEXT_STATE] = CHOIX_TEMP;
+
+  Menu[CHOIX_TEMP][TEMP_EMAIL][ACTION_MENU][NEXT_MENU] = MENU_INITIAL_1;
+  Menu[CHOIX_TEMP][TEMP_EMAIL][ACTION_MENU][NEXT_STATE] = INITIAL;
+  Menu[CHOIX_TEMP][TEMP_EMAIL][ACTION_UP][NEXT_MENU] = TEMP_EMAIL;
+  Menu[CHOIX_TEMP][TEMP_EMAIL][ACTION_UP][NEXT_STATE] = CHOIX_TEMP;
+  Menu[CHOIX_TEMP][TEMP_EMAIL][ACTION_DOWN][NEXT_MENU] = TEMP_EMAIL;
+  Menu[CHOIX_TEMP][TEMP_EMAIL][ACTION_DOWN][NEXT_STATE] = CHOIX_TEMP;
+  Menu[CHOIX_TEMP][TEMP_EMAIL][ACTION_SELECT][NEXT_MENU] = LANCER_CUISSON_1;
+  Menu[CHOIX_TEMP][TEMP_EMAIL][ACTION_SELECT][NEXT_STATE] = CHOIX_TEMP;
+
+  Menu[CHOIX_TEMP][TEMP_BISCUIT][ACTION_MENU][NEXT_MENU] = MENU_INITIAL_1;
+  Menu[CHOIX_TEMP][TEMP_BISCUIT][ACTION_MENU][NEXT_STATE] = INITIAL;
+  Menu[CHOIX_TEMP][TEMP_BISCUIT][ACTION_UP][NEXT_MENU] = TEMP_BISCUIT;
+  Menu[CHOIX_TEMP][TEMP_BISCUIT][ACTION_UP][NEXT_STATE] = CHOIX_TEMP;
+  Menu[CHOIX_TEMP][TEMP_BISCUIT][ACTION_DOWN][NEXT_MENU] = TEMP_BISCUIT;
+  Menu[CHOIX_TEMP][TEMP_BISCUIT][ACTION_DOWN][NEXT_STATE] = CHOIX_TEMP;
+  Menu[CHOIX_TEMP][TEMP_BISCUIT][ACTION_SELECT][NEXT_MENU] = LANCER_CUISSON_1;
+  Menu[CHOIX_TEMP][TEMP_BISCUIT][ACTION_SELECT][NEXT_STATE] = CHOIX_TEMP;
+
+  Menu[CHOIX_TEMP][LANCER_CUISSON_1][ACTION_MENU][NEXT_MENU] = MENU_INITIAL_1;
+  Menu[CHOIX_TEMP][LANCER_CUISSON_1][ACTION_MENU][NEXT_STATE] = INITIAL;
+  Menu[CHOIX_TEMP][LANCER_CUISSON_1][ACTION_UP][NEXT_MENU] = LANCER_CUISSON_1;
+  Menu[CHOIX_TEMP][LANCER_CUISSON_1][ACTION_UP][NEXT_STATE] = CHOIX_TEMP;
+  Menu[CHOIX_TEMP][LANCER_CUISSON_1][ACTION_DOWN][NEXT_MENU] = LANCER_CUISSON_1;
+  Menu[CHOIX_TEMP][LANCER_CUISSON_1][ACTION_DOWN][NEXT_STATE] = CHOIX_TEMP;
+  Menu[CHOIX_TEMP][LANCER_CUISSON_1][ACTION_SELECT][NEXT_MENU] = EN_COURS;
+  Menu[CHOIX_TEMP][LANCER_CUISSON_1][ACTION_SELECT][NEXT_STATE] = CUISSON_EN_COURS;
+
+  Menu[CUISSON_EN_COURS][EN_COURS][ACTION_MENU][NEXT_MENU] = MENU_INTERRUPTION_1;
+  Menu[CUISSON_EN_COURS][EN_COURS][ACTION_MENU][NEXT_STATE] = CUISSON_EN_COURS;
+  Menu[CUISSON_EN_COURS][EN_COURS][ACTION_UP][NEXT_MENU] = MENU_INTERRUPTION_1;
+  Menu[CUISSON_EN_COURS][EN_COURS][ACTION_UP][NEXT_STATE] = CUISSON_EN_COURS;
+  Menu[CUISSON_EN_COURS][EN_COURS][ACTION_DOWN][NEXT_MENU] = MENU_INTERRUPTION_1;
+  Menu[CUISSON_EN_COURS][EN_COURS][ACTION_DOWN][NEXT_STATE] = CUISSON_EN_COURS;
+  Menu[CUISSON_EN_COURS][EN_COURS][ACTION_SELECT][NEXT_MENU] = MENU_INTERRUPTION_1;
+  Menu[CUISSON_EN_COURS][EN_COURS][ACTION_SELECT][NEXT_STATE] = CUISSON_EN_COURS;
+
+  Menu[CUISSON_EN_COURS][MENU_INTERRUPTION_1][ACTION_MENU][NEXT_MENU] = MENU_INTERRUPTION_1;
+  Menu[CUISSON_EN_COURS][MENU_INTERRUPTION_1][ACTION_MENU][NEXT_STATE] = CUISSON_EN_COURS;
+  Menu[CUISSON_EN_COURS][MENU_INTERRUPTION_1][ACTION_UP][NEXT_MENU] = MENU_INTERRUPTION_1;
+  Menu[CUISSON_EN_COURS][MENU_INTERRUPTION_1][ACTION_UP][NEXT_STATE] = CUISSON_EN_COURS;
+  Menu[CUISSON_EN_COURS][MENU_INTERRUPTION_1][ACTION_DOWN][NEXT_MENU] = MENU_INTERRUPTION_2;
+  Menu[CUISSON_EN_COURS][MENU_INTERRUPTION_1][ACTION_DOWN][NEXT_STATE] = CUISSON_EN_COURS;
+  Menu[CUISSON_EN_COURS][MENU_INTERRUPTION_1][ACTION_SELECT][NEXT_MENU] = EN_COURS;
+  Menu[CUISSON_EN_COURS][MENU_INTERRUPTION_1][ACTION_SELECT][NEXT_STATE] = CUISSON_EN_COURS;
+
+  Menu[CUISSON_EN_COURS][MENU_INTERRUPTION_2][ACTION_MENU][NEXT_MENU] = MENU_INTERRUPTION_1;
+  Menu[CUISSON_EN_COURS][MENU_INTERRUPTION_2][ACTION_MENU][NEXT_STATE] = CUISSON_EN_COURS;
+  Menu[CUISSON_EN_COURS][MENU_INTERRUPTION_2][ACTION_UP][NEXT_MENU] = MENU_INTERRUPTION_1;
+  Menu[CUISSON_EN_COURS][MENU_INTERRUPTION_2][ACTION_UP][NEXT_STATE] = CUISSON_EN_COURS;
+  Menu[CUISSON_EN_COURS][MENU_INTERRUPTION_2][ACTION_DOWN][NEXT_MENU] = MENU_INTERRUPTION_2;
+  Menu[CUISSON_EN_COURS][MENU_INTERRUPTION_2][ACTION_DOWN][NEXT_STATE] = CUISSON_EN_COURS;
+  Menu[CUISSON_EN_COURS][MENU_INTERRUPTION_2][ACTION_SELECT][NEXT_MENU] = STOP;
+  Menu[CUISSON_EN_COURS][MENU_INTERRUPTION_2][ACTION_SELECT][NEXT_STATE] = CUISSON_REFROISDISSEMENT;
+
+  Menu[CUISSON_REFROISDISSEMENT][STOP][ACTION_MENU][NEXT_MENU] = MENU_REPRENDRE_1;
+  Menu[CUISSON_REFROISDISSEMENT][STOP][ACTION_MENU][NEXT_STATE] = CUISSON_REFROISDISSEMENT;
+  Menu[CUISSON_REFROISDISSEMENT][STOP][ACTION_UP][NEXT_MENU] = STOP;
+  Menu[CUISSON_REFROISDISSEMENT][STOP][ACTION_UP][NEXT_STATE] = CUISSON_REFROISDISSEMENT;
+  Menu[CUISSON_REFROISDISSEMENT][STOP][ACTION_DOWN][NEXT_MENU] = STOP;
+  Menu[CUISSON_REFROISDISSEMENT][STOP][ACTION_DOWN][NEXT_STATE] = CUISSON_REFROISDISSEMENT;
+  Menu[CUISSON_REFROISDISSEMENT][STOP][ACTION_SELECT][NEXT_MENU] = STOP;
+  Menu[CUISSON_REFROISDISSEMENT][STOP][ACTION_SELECT][NEXT_STATE] = CUISSON_REFROISDISSEMENT;
+
+  Menu[CUISSON_REFROISDISSEMENT][MENU_REPRENDRE_1][ACTION_MENU][NEXT_MENU] = MENU_REPRENDRE_1;
+  Menu[CUISSON_REFROISDISSEMENT][MENU_REPRENDRE_1][ACTION_MENU][NEXT_STATE] = CUISSON_REFROISDISSEMENT;
+  Menu[CUISSON_REFROISDISSEMENT][MENU_REPRENDRE_1][ACTION_UP][NEXT_MENU] = MENU_REPRENDRE_1;
+  Menu[CUISSON_REFROISDISSEMENT][MENU_REPRENDRE_1][ACTION_UP][NEXT_STATE] = CUISSON_REFROISDISSEMENT;
+  Menu[CUISSON_REFROISDISSEMENT][MENU_REPRENDRE_1][ACTION_DOWN][NEXT_MENU] = MENU_REPRENDRE_2;
+  Menu[CUISSON_REFROISDISSEMENT][MENU_REPRENDRE_1][ACTION_DOWN][NEXT_STATE] = CUISSON_REFROISDISSEMENT;
+  Menu[CUISSON_REFROISDISSEMENT][MENU_REPRENDRE_1][ACTION_SELECT][NEXT_MENU] = EN_COURS;
+  Menu[CUISSON_REFROISDISSEMENT][MENU_REPRENDRE_1][ACTION_SELECT][NEXT_STATE] = CUISSON_EN_COURS;
+
+  Menu[CUISSON_REFROISDISSEMENT][MENU_REPRENDRE_2][ACTION_MENU][NEXT_MENU] = MENU_REPRENDRE_1;
+  Menu[CUISSON_REFROISDISSEMENT][MENU_REPRENDRE_2][ACTION_MENU][NEXT_STATE] = CUISSON_REFROISDISSEMENT;
+  Menu[CUISSON_REFROISDISSEMENT][MENU_REPRENDRE_2][ACTION_UP][NEXT_MENU] = MENU_REPRENDRE_1;
+  Menu[CUISSON_REFROISDISSEMENT][MENU_REPRENDRE_2][ACTION_UP][NEXT_STATE] = CUISSON_REFROISDISSEMENT;
+  Menu[CUISSON_REFROISDISSEMENT][MENU_REPRENDRE_2][ACTION_DOWN][NEXT_MENU] = MENU_REPRENDRE_2;
+  Menu[CUISSON_REFROISDISSEMENT][MENU_REPRENDRE_2][ACTION_DOWN][NEXT_STATE] = CUISSON_REFROISDISSEMENT;
+  Menu[CUISSON_REFROISDISSEMENT][MENU_REPRENDRE_2][ACTION_SELECT][NEXT_MENU] = STOP;
+  Menu[CUISSON_REFROISDISSEMENT][MENU_REPRENDRE_2][ACTION_SELECT][NEXT_STATE] = CUISSON_REFROISDISSEMENT;
+
+  Menu[CUISSON_TERMINEE][STOP][ACTION_MENU][NEXT_MENU] = MENU_REPRENDRE_1;
+  Menu[CUISSON_TERMINEE][STOP][ACTION_MENU][NEXT_STATE] = CUISSON_REFROISDISSEMENT;
+  Menu[CUISSON_TERMINEE][STOP][ACTION_UP][NEXT_MENU] = STOP;
+  Menu[CUISSON_TERMINEE][STOP][ACTION_UP][NEXT_STATE] = CUISSON_REFROISDISSEMENT;
+  Menu[CUISSON_TERMINEE][STOP][ACTION_DOWN][NEXT_MENU] = STOP;
+  Menu[CUISSON_TERMINEE][STOP][ACTION_DOWN][NEXT_STATE] = CUISSON_REFROISDISSEMENT;
+  Menu[CUISSON_TERMINEE][STOP][ACTION_SELECT][NEXT_MENU] = STOP;
+  Menu[CUISSON_TERMINEE][STOP][ACTION_SELECT][NEXT_STATE] = CUISSON_REFROISDISSEMENT;
+
+  Menu[CUISSON_TERMINEE][MENU_REPRENDRE_1][ACTION_MENU][NEXT_MENU] = MENU_REPRENDRE_1;
+  Menu[CUISSON_TERMINEE][MENU_REPRENDRE_1][ACTION_MENU][NEXT_STATE] = CUISSON_TERMINEE;
+  Menu[CUISSON_TERMINEE][MENU_REPRENDRE_1][ACTION_UP][NEXT_MENU] = MENU_REPRENDRE_1;
+  Menu[CUISSON_TERMINEE][MENU_REPRENDRE_1][ACTION_UP][NEXT_STATE] = CUISSON_TERMINEE;
+  Menu[CUISSON_TERMINEE][MENU_REPRENDRE_1][ACTION_DOWN][NEXT_MENU] = MENU_REPRENDRE_2;
+  Menu[CUISSON_TERMINEE][MENU_REPRENDRE_1][ACTION_DOWN][NEXT_STATE] = CUISSON_TERMINEE;
+  Menu[CUISSON_TERMINEE][MENU_REPRENDRE_1][ACTION_SELECT][NEXT_MENU] = EN_COURS;
+  Menu[CUISSON_TERMINEE][MENU_REPRENDRE_1][ACTION_SELECT][NEXT_STATE] = CUISSON_EN_COURS;
+
+  Menu[CUISSON_TERMINEE][MENU_REPRENDRE_2][ACTION_MENU][NEXT_MENU] = MENU_REPRENDRE_1;
+  Menu[CUISSON_TERMINEE][MENU_REPRENDRE_2][ACTION_MENU][NEXT_STATE] = CUISSON_TERMINEE;
+  Menu[CUISSON_TERMINEE][MENU_REPRENDRE_2][ACTION_UP][NEXT_MENU] = MENU_REPRENDRE_1;
+  Menu[CUISSON_TERMINEE][MENU_REPRENDRE_2][ACTION_UP][NEXT_STATE] = CUISSON_TERMINEE;
+  Menu[CUISSON_TERMINEE][MENU_REPRENDRE_2][ACTION_DOWN][NEXT_MENU] = MENU_REPRENDRE_2;
+  Menu[CUISSON_TERMINEE][MENU_REPRENDRE_2][ACTION_DOWN][NEXT_STATE] = CUISSON_TERMINEE;
+  Menu[CUISSON_TERMINEE][MENU_REPRENDRE_2][ACTION_SELECT][NEXT_MENU] = STOP;
+  Menu[CUISSON_TERMINEE][MENU_REPRENDRE_2][ACTION_SELECT][NEXT_STATE] = CUISSON_TERMINEE;
+}
 
 void setup() {
   pinMode(11, INPUT);
   pinMode(13, OUTPUT);
   pinMode(L1, OUTPUT);  //L1 est une broche de sortie
-
-  Menu[MENU_INITIAL_1][ACTION_MENU] = MENU_INITIAL_1;
-  Menu[MENU_INITIAL_1][ACTION_UP] = MENU_INITIAL_1;
-  Menu[MENU_INITIAL_1][ACTION_DOWN] = MENU_INITIAL_2;
-  Menu[MENU_INITIAL_1][ACTION_SELECT] = TEMP_BISCUIT;
-  Menu[MENU_INITIAL_1][NEXT_STATE] = INITIAL;
-
-  Menu[MENU_INITIAL_2][ACTION_MENU] = MENU_INITIAL_1;
-  Menu[MENU_INITIAL_2][ACTION_UP] = MENU_INITIAL_1;
-  Menu[MENU_INITIAL_2][ACTION_DOWN] = MENU_INITIAL_2;
-  Menu[MENU_INITIAL_2][ACTION_SELECT] = TEMP_EMAIL;
-  Menu[MENU_INITIAL_2][NEXT_STATE] = CHOIX_TEMP;
-
-  Menu[MENU_INTERRUPTION_1][ACTION_MENU] = MENU_INTERRUPTION_1;
-  Menu[MENU_INTERRUPTION_1][ACTION_UP] = MENU_INTERRUPTION_1;
-  Menu[MENU_INTERRUPTION_1][ACTION_DOWN] = MENU_INTERRUPTION_2;
-  Menu[MENU_INTERRUPTION_1][ACTION_SELECT] = EN_COURS;
-  Menu[MENU_INTERRUPTION_1][NEXT_STATE] = CUISSON_EN_COURS;
-
-  Menu[MENU_INTERRUPTION_2][ACTION_MENU] = MENU_INTERRUPTION_1;
-  Menu[MENU_INTERRUPTION_2][ACTION_UP] = MENU_INTERRUPTION_1;
-  Menu[MENU_INTERRUPTION_2][ACTION_DOWN] = MENU_INTERRUPTION_2;
-  Menu[MENU_INTERRUPTION_2][ACTION_SELECT] = ARRET_CUISSON;
-  Menu[MENU_INTERRUPTION_2][NEXT_STATE] = CUISSON_REFROISDISSEMENT;
-
-  Menu[TEMP_EMAIL][ACTION_MENU] = TEMP_EMAIL;
-  Menu[TEMP_EMAIL][ACTION_UP] = TEMP_EMAIL;
-  Menu[TEMP_EMAIL][ACTION_DOWN] = TEMP_EMAIL;
-  Menu[TEMP_EMAIL][ACTION_SELECT] = LANCER_CUISSON_EMAIL;
-  Menu[TEMP_EMAIL][NEXT_STATE] = CHOIX_TEMP;  //TODO
-
-  Menu[MENU_REPRENDRE_1][ACTION_MENU] = MENU_REPRENDRE_1;
-  Menu[MENU_REPRENDRE_1][ACTION_UP] = MENU_REPRENDRE_1;
-  Menu[MENU_REPRENDRE_1][ACTION_DOWN] = MENU_REPRENDRE_2;
-  Menu[MENU_REPRENDRE_1][ACTION_SELECT] = EN_COURS;
-  Menu[MENU_REPRENDRE_1][NEXT_STATE] = CUISSON_EN_COURS;  //8
-
-  Menu[MENU_REPRENDRE_2][ACTION_MENU] = MENU_REPRENDRE_1;
-  Menu[MENU_REPRENDRE_2][ACTION_UP] = MENU_REPRENDRE_1;
-  Menu[MENU_REPRENDRE_2][ACTION_DOWN] = MENU_REPRENDRE_2;
-  Menu[MENU_REPRENDRE_2][ACTION_SELECT] = STOP;
-  Menu[MENU_REPRENDRE_2][NEXT_STATE] = CUISSON_REFROISDISSEMENT;  //8
-
-  Menu[EN_COURS][ACTION_MENU] = MENU_INTERRUPTION_1;
-  Menu[EN_COURS][ACTION_UP] = EN_COURS;
-  Menu[EN_COURS][ACTION_DOWN] = EN_COURS;
-  Menu[EN_COURS][ACTION_SELECT] = EN_COURS;
-  Menu[EN_COURS][NEXT_STATE] = CUISSON_EN_COURS;  //8
-
-  Menu[STOP][ACTION_MENU] = MENU_REPRENDRE_1;
-  Menu[STOP][ACTION_UP] = STOP;
-  Menu[STOP][ACTION_DOWN] = STOP;
-  Menu[STOP][ACTION_SELECT] = STOP;
-  Menu[STOP][NEXT_STATE] = CUISSON_REFROISDISSEMENT;  //8
-
-  Menu[EN_COURS_EMAIL][ACTION_MENU] = MENU_REPRENDRE_1;  //TODO
-  Menu[EN_COURS_EMAIL][ACTION_UP] = EN_COURS_EMAIL;
-  Menu[EN_COURS_EMAIL][ACTION_DOWN] = EN_COURS_EMAIL;
-  Menu[EN_COURS_EMAIL][ACTION_SELECT] = EN_COURS_EMAIL;
-  Menu[EN_COURS_EMAIL][NEXT_STATE] = CUISSON_EN_COURS;  //8
-
-  Menu[MENU_REPRENDRE_CF_1][ACTION_MENU] = MENU_REPRENDRE_CF_1;
-  Menu[MENU_REPRENDRE_CF_1][ACTION_UP] = MENU_REPRENDRE_CF_1;
-  Menu[MENU_REPRENDRE_CF_1][ACTION_DOWN] = MENU_REPRENDRE_CF_2;
-  Menu[MENU_REPRENDRE_CF_1][ACTION_SELECT] = EN_COURS;
-  Menu[MENU_REPRENDRE_CF_1][NEXT_STATE] = CUISSON_EN_COURS;  //8
-
-  Menu[MENU_REPRENDRE_CF_2][ACTION_MENU] = MENU_REPRENDRE_CF_2;
-  Menu[MENU_REPRENDRE_CF_2][ACTION_UP] = MENU_REPRENDRE_CF_1;
-  Menu[MENU_REPRENDRE_CF_2][ACTION_DOWN] = MENU_REPRENDRE_CF_2;
-  Menu[MENU_REPRENDRE_CF_2][ACTION_SELECT] = STOP;
-  Menu[MENU_REPRENDRE_CF_2][NEXT_STATE] = CUISSON_REFROISDISSEMENT;  //8
-
-  Menu[TEMP_BISCUIT][ACTION_MENU] = MENU_INITIAL_1;
-  Menu[TEMP_BISCUIT][ACTION_UP] = TEMP_BISCUIT;
-  Menu[TEMP_BISCUIT][ACTION_DOWN] = TEMP_BISCUIT;
-  Menu[TEMP_BISCUIT][ACTION_SELECT] = LANCER_CUISSON_1;
-  Menu[TEMP_BISCUIT][NEXT_STATE] = CHOIX_TEMP;  //8
-
-  Menu[LANCER_CUISSON_1][ACTION_MENU] = MENU_INITIAL_1;
-  Menu[LANCER_CUISSON_1][ACTION_UP] = LANCER_CUISSON_1;
-  Menu[LANCER_CUISSON_1][ACTION_DOWN] = LANCER_CUISSON_1;
-  Menu[LANCER_CUISSON_1][ACTION_SELECT] = EN_COURS;
-  Menu[LANCER_CUISSON_1][NEXT_STATE] = CHOIX_TEMP;  //8
-
-  Menu[ARRET_CUISSON][ACTION_MENU] = EN_COURS;
-  Menu[ARRET_CUISSON][ACTION_UP] = ARRET_CUISSON;
-  Menu[ARRET_CUISSON][ACTION_DOWN] = ARRET_CUISSON;
-  Menu[ARRET_CUISSON][ACTION_SELECT] = STOP;
-  Menu[ARRET_CUISSON][NEXT_STATE] = CUISSON_EN_COURS;  //8
-
-  Menu[LANCER_CUISSON_EMAIL][ACTION_MENU] = MENU_INITIAL_1;
-  Menu[LANCER_CUISSON_EMAIL][ACTION_UP] = LANCER_CUISSON_1;
-  Menu[LANCER_CUISSON_EMAIL][ACTION_DOWN] = LANCER_CUISSON_1;
-  Menu[LANCER_CUISSON_EMAIL][ACTION_SELECT] = EN_COURS_EMAIL;
-  Menu[LANCER_CUISSON_EMAIL][NEXT_STATE] = CHOIX_TEMP;  //8
-
-  Menu[ARRET_CUISSON_EMAIL][ACTION_MENU] = EN_COURS;
-  Menu[ARRET_CUISSON_EMAIL][ACTION_UP] = ARRET_CUISSON;
-  Menu[ARRET_CUISSON_EMAIL][ACTION_DOWN] = ARRET_CUISSON;
-  Menu[ARRET_CUISSON_EMAIL][ACTION_SELECT] = STOP;
-  Menu[ARRET_CUISSON_EMAIL][NEXT_STATE] = CUISSON_EN_COURS;  //8
-
-
   ETAT_MENU = MENU_INITIAL_1;
   STATE = INITIAL;
+  setupMenu();
+
+
 
   Serial.begin(9600);
 
@@ -549,7 +585,7 @@ void setup() {
     //case MAX31856_TCTYPE_B: Serial.println("B Type"); break;
     //case MAX31856_TCTYPE_E: Serial.println("E Type"); break;
     //case MAX31856_TCTYPE_J: Serial.println("J Type"); break;
-    case MAX31856_TCTYPE_K: Serial.println("K Type"); break;
+    case MAX31856_TCTYPE_K: Serial.println(F("K Type")); break;
     //case MAX31856_TCTYPE_N: Serial.println("N Type"); break;
     //case MAX31856_TCTYPE_R: Serial.println("R Type"); break;
     //case MAX31856_TCTYPE_S: Serial.println("S Type"); break;
@@ -562,7 +598,6 @@ void setup() {
   maxthermo.setConversionMode(MAX31856_ONESHOT_NOWAIT);
   phaseEnCours = 0;
   typeCuisson = CUISSON_BISCUIT;  // faience
-  cuissonTerminee = false;
   initialisation = true;
   // temps initial
   tInit = millis() / TSec;
@@ -572,7 +607,7 @@ void setup() {
   delay(250);
   digitalWrite(L1, LOW);  // éteindre L1
   cycleTermine = true;
-  Serial.println("erreur;correctionP;Integ;Deriv;D filtree;commande;mesure;ratio;consigne;dureePhase");
+  Serial.println(F("erreur;correctionP;Integ;Deriv;D_filtree;commande;mesure;ratio;consigne;dureePhase"));
 }
 
 byte varCompteurTimer = 0;  // La variable compteur
@@ -624,8 +659,8 @@ ISR(TIMER2_OVF_vect) {
         // Ki = 1/Ti
 
         integration = dt * nbEchantillons * erreur / ki + integration;
-        if(integration > 1000) integration = 1000;
-        if(integration < -1000) integration = -1000;
+        if (integration > 1000) integration = 1000;
+        if (integration < -1000) integration = -1000;
         // calcul du terme dérivé
         if (temperatureMoyenne < TEMPERATURE_SEUIL_PID) {
           derivation = (erreur - erreur_n_1) * kd * dt / (nbEchantillons);
@@ -637,7 +672,7 @@ ISR(TIMER2_OVF_vect) {
         erreur_n_1 = erreur;
         commande = integration + CorrectionP + derivationFiltree;
         if (commande > AMPLITUDE_MAX) commande = AMPLITUDE_MAX;
-        if (commande  < 0) commande = 0;
+        if (commande < 0) commande = 0;
         ratio = round(calculRatio(commande));
       } else {
         ratio = 0;
@@ -645,8 +680,8 @@ ISR(TIMER2_OVF_vect) {
     }
     switch (STATE) {
       case CUISSON_EN_COURS:
-      // start with 0 to avoid wrong temperature measure
-        if (compteurEchantillon > (nbEchantillons - ratio)) { 
+        // start with 0 to avoid wrong temperature measure
+        if (compteurEchantillon > (nbEchantillons - ratio)) {
           digitalWrite(L1, HIGH);
         } else {
           digitalWrite(L1, LOW);
@@ -664,6 +699,30 @@ ISR(TIMER2_OVF_vect) {
  */
 int previousBtn = 0;
 
+void debugState(byte state, byte menu) {
+  switch (state) {
+    case INITIAL:
+      Serial.println(F("State: INITIAL"));
+      break;
+    case CHOIX_TEMP:
+      Serial.println(F("State: CHOIX_TEMP"));
+      break;
+    case CUISSON_EN_COURS:
+      Serial.println(F("State: CUISSON_EN_COURS"));
+      break;
+    case CUISSON_REFROISDISSEMENT:
+      Serial.println(F("State: CUISSON_REFROISDISSEMENT"));
+      break;
+    case CUISSON_TERMINEE:
+      Serial.println(F("State: CUISSON_TERMINEE"));
+      break;
+  }
+  Serial.print(F("ETAT_MENU "));
+  Serial.println(menu);
+}
+/**
+* 
+*/
 void checkMenu() {
   // read the values of the push buttons
 
@@ -685,14 +744,10 @@ void checkMenu() {
       menuOption = ACTION_DOWN;
       break;
     case btnSELECT:
-      {
-        menuOption = ACTION_SELECT;
-        break;
-      }
+      menuOption = ACTION_SELECT;
+      break;
     case btnNONE:
-      {
-        break;
-      }
+      break;
   }
   if (previousBtn != button1State) {
     menuChanged = true;
@@ -712,13 +767,20 @@ void checkMenu() {
   //  }
   // check if the menu option has changed
   if (menuChanged && previousBtn == btnNONE) {
+    //Serial.println(F("menu changed"));
     menuChanged = false;
     menuEnCours = 1;
     // update the LCD to show the selected option
     lcd.clear();
+    byte previous_menu;
+    byte previous_state;
     switch (menuOption) {
       case ACTION_SELECT:
-        ETAT_MENU = Menu[ETAT_MENU][ACTION_SELECT];
+        previous_state = STATE;
+        previous_menu = ETAT_MENU;
+        ETAT_MENU = Menu[previous_state][previous_menu][ACTION_SELECT][NEXT_MENU];
+        STATE = Menu[previous_state][previous_menu][ACTION_SELECT][NEXT_STATE];
+         debugState(STATE, ETAT_MENU);
         if (ETAT_MENU == TEMP_EMAIL) {
           typeCuisson = CUISSON_EMAIL;
           userDefinedMaxTemp = DEFAULT_TEMPERATURE_MAX_EMAIL;
@@ -726,25 +788,29 @@ void checkMenu() {
           typeCuisson = CUISSON_BISCUIT;
           userDefinedMaxTemp = DEFAULT_TEMPERATURE_MAX_BISCUIT;
         }
-        STATE = Menu[ETAT_MENU][NEXT_STATE];
         switch (STATE) {
           case CUISSON_EN_COURS:
             stopCuisson = false;
-            cuissonTerminee = false;
-            setPhaseParameters(typeCuisson, phaseEnCours);
-            tInit = millis() / TSec;
+            if(previous_state == CHOIX_TEMP && previous_menu == LANCER_CUISSON_1) {
+              setPhaseParameters(typeCuisson, phaseEnCours);
+              tInit = millis() / TSec;
+            }
             break;
           case CUISSON_REFROISDISSEMENT:
           case CUISSON_TERMINEE:
             stopCuisson = true;
-            cuissonTerminee = true;
             tInit = millis() / TSec;
             break;
         }
-
         break;
       case ACTION_DOWN:
-        ETAT_MENU = Menu[ETAT_MENU][ACTION_DOWN];
+        //Serial.println(F("Down"));
+        previous_state = STATE;
+        previous_menu = ETAT_MENU;
+        // debugState(STATE, ETAT_MENU);
+        ETAT_MENU = Menu[previous_state][previous_menu][ACTION_DOWN][NEXT_MENU];
+        STATE = Menu[previous_state][previous_menu][ACTION_DOWN][NEXT_STATE];
+        // debugState(STATE, ETAT_MENU);
         switch (ETAT_MENU) {
           case TEMP_BISCUIT:
           case TEMP_EMAIL:
@@ -752,7 +818,11 @@ void checkMenu() {
         }
         break;
       case ACTION_UP:
-        ETAT_MENU = Menu[ETAT_MENU][ACTION_UP];
+        previous_state = STATE;
+        previous_menu = ETAT_MENU;
+        ETAT_MENU = Menu[previous_state][previous_menu][ACTION_UP][NEXT_MENU];
+        STATE = Menu[previous_state][previous_menu][ACTION_UP][NEXT_STATE];
+        // debugState(STATE, ETAT_MENU);
         switch (ETAT_MENU) {
           case TEMP_BISCUIT:
           case TEMP_EMAIL:
@@ -760,7 +830,11 @@ void checkMenu() {
         }
         break;
       case ACTION_MENU:
-        ETAT_MENU = Menu[ETAT_MENU][ACTION_MENU];
+        previous_state = STATE;
+        previous_menu = ETAT_MENU;
+        ETAT_MENU = Menu[previous_state][previous_menu][ACTION_MENU][NEXT_MENU];
+        STATE = Menu[previous_state][previous_menu][ACTION_MENU][NEXT_STATE];
+        // debugState(STATE, ETAT_MENU);
         break;
     }
   }
@@ -795,12 +869,20 @@ void loop() {
       lcd.print("-");
       break;
     case CUISSON_EN_COURS:
-      menuEnCours = 0;
-
+      if (ETAT_MENU == EN_COURS) {
+        menuEnCours = 0;
+      } else {
+        menuEnCours = 1;
+      }
+      break;
     case CUISSON_REFROISDISSEMENT:
-      menuEnCours = 0;
-      lcd.setCursor(15, 1);
-      lcd.print("_");
+      if (ETAT_MENU == STOP) {
+        menuEnCours = 0;
+        lcd.setCursor(15, 1);
+        lcd.print("_");
+      } else {
+        menuEnCours = 1;
+      }
       break;
     case CUISSON_TERMINEE:
       menuEnCours = 0;
@@ -817,9 +899,9 @@ void loop() {
   }
   if (menuEnCours) {
     lcd.setCursor(0, 0);
-    lcd.print(MenuItems[ETAT_MENU][0]);
+    lcd.print(MenuItems[STATE][ETAT_MENU][0]);
     lcd.setCursor(0, 1);
-    lcd.print(MenuItems[ETAT_MENU][1]);
+    lcd.print(MenuItems[STATE][ETAT_MENU][1]);
 
   } else {
     if (STATE == CUISSON_EN_COURS || STATE == STOP || STATE == CUISSON_REFROISDISSEMENT || STATE == CUISSON_TERMINEE) {
@@ -849,11 +931,16 @@ void loop() {
         } else {
           // affichage temps écoulé
           if (STATE == CUISSON_EN_COURS) {
-            displayPhase(phaseEnCours, dureePhase);
-            displayGoal(temperatureMoyenne, temperatureFinale);
+            if (!menuEnCours) {
+              displayPhase(phaseEnCours, dureePhase);
+              displayGoal(temperatureMoyenne, temperatureFinale);
+            }
+
           } else {  //TODO
-            displayGoal(temperatureMoyenne, temperatureFinale);
-            displayTime(Num_heur, Num_min, Num_sec);
+            if (!menuEnCours) {
+              displayGoal(temperatureMoyenne, temperatureFinale);
+              displayTime(Num_heur, Num_min, Num_sec);
+            }
           }
         }
 
@@ -861,25 +948,25 @@ void loop() {
           cycleTermine = false;
           Serial.println();
           Serial.print(erreur);
-          Serial.print(";");
+          Serial.print(F(";"));
           Serial.print(CorrectionP);
-          Serial.print(";");
+          Serial.print(F(";"));
           Serial.print(integration);
-          Serial.print(";");
+          Serial.print(F(";"));
           Serial.print(derivation);
-          Serial.print(";");
+          Serial.print(F(";"));
           Serial.print(derivationFiltree);
-          Serial.print(";");
+          Serial.print(F(";"));
           Serial.print(commande);
-          Serial.print(";");
+          Serial.print(F(";"));
           Serial.print(temperatureMoyenne);
-          Serial.print(";");
+          Serial.print(F(";"));
           Serial.print(ratio);
-          Serial.print(";");
+          Serial.print(F(";"));
           Serial.print(consigne);
-          Serial.print(";");
+          Serial.print(F(";"));
           Serial.print(dureePhase);
-          Serial.print(";");
+          Serial.print(F(";"));
         }
         if (STATE == CUISSON_EN_COURS) {
           if (changePhase(consigne, temperatureMoyenne, phaseEnCours, dureePhase, tDecalePhase)) {
@@ -890,7 +977,8 @@ void loop() {
             //CorrectionP = 0;
             //integration = 0;
             if (phaseEnCours >= NB_PHASES) {
-              cuissonTerminee = true;
+              STATE = CUISSON_REFROISDISSEMENT;
+              ETAT_MENU = STOP;
             } else {
               setPhaseParameters(typeCuisson, phaseEnCours);
             }
@@ -899,22 +987,27 @@ void loop() {
       } else {
         lcd.clear();
         displayTemperature(temperatureMoyenne, consigne);
+        if(temperatureMoyenne >= 100) {
+          STATE = CUISSON_REFROISDISSEMENT;
+        } else {
+          STATE = CUISSON_TERMINEE;
+        }
         displayFinCuisson();
         ratio = 0;
         if (cycleTermine == true) {
           cycleTermine = false;
           Serial.println();
-          Serial.print(";");
-          Serial.print(";");
-          Serial.print(";");
-          Serial.print(";");
-          Serial.print(";");
+          Serial.print(F(";"));
+          Serial.print(F(";"));
+          Serial.print(F(";"));
+          Serial.print(F(";"));
+          Serial.print(F(";"));
           Serial.print(temperatureMoyenne);
-          Serial.print(";");
+          Serial.print(F(";"));
           Serial.print(ratio);
-          Serial.print(";");
+          Serial.print(F(";"));
           Serial.print(dureePhase);
-          Serial.print(";");
+          Serial.print(F(";"));
         }
       }
     }
