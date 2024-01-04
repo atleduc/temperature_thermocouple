@@ -313,10 +313,7 @@ void displayGoal(float temp, float goal) {
   lcd.print((int)goal);
   lcd.write((byte)0);
 }
-void displayFinCuisson() {
-  lcd.setCursor(0, 1);
-  lcd.print("Cuisson terminee");
-}
+
 /*
  * lecture de la température du thermocouple
  */
@@ -989,10 +986,14 @@ void loop() {
         displayTemperature(temperatureMoyenne, consigne);
         if(temperatureMoyenne >= 100) {
           STATE = CUISSON_REFROISDISSEMENT;
+          lcd.setCursor(0, 1);
+          lcd.print(F("Refroisissement "));
         } else {
           STATE = CUISSON_TERMINEE;
+          lcd.setCursor(0, 1);
+          lcd.print(F("Cuisson terminee"));
         }
-        displayFinCuisson();
+        
         ratio = 0;
         if (cycleTermine == true) {
           cycleTermine = false;
