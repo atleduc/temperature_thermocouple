@@ -125,7 +125,7 @@ pid pids[3] = {
 // float Ki_haute_temperature = 919.662;       // 1/Ki is used after
 // float Kd_haute_temperature = 229.9155;     //
 
-float dt = 0.25;  // période échantillonage = 0.25s à rapprocher du timer
+float dt = 0.125;  // période échantillonage = 0.125s à rapprocher du timer
 float integration = 0.;
 float derivation = 0.;
 float erreur_n_1 = 0;
@@ -552,13 +552,19 @@ void setup() {
 
 
 
-  Serial.begin(9600);
+  Serial.begin(19200);
 
   // init du timer et des interruptions
   cli();                    // Désactive l'interruption globale
   bitClear(TCCR2A, WGM20);  // WGM20 = 0
   bitClear(TCCR2A, WGM21);  // WGM21 = 0
-  TCCR2B = 0b00000110;      // Clock / 256 soit 16 micro-s et WGM22 = 0
+  //TCCR2B = 0b00000001;      // Clock 
+  //TCCR2B = 0b00000010;      // Clock / 8 soit 0.5 micro-s et WGM22 = 0
+  //TCCR2B = 0b00000011;      // Clock / 32 soit 2 micro-s et WGM22 = 0
+  //TCCR2B = 0b00000100;      // Clock / 64 soit 4 micro-s et WGM22 = 0
+  TCCR2B = 0b00000101;      // Clock / 128 soit 4 micro-s et WGM22 = 0
+  //TCCR2B = 0b00000110;      // Clock / 256 soit 16 micro-s et WGM22 = 0
+  //TCCR2B = 0b00000111;      // Clock / 1024 soit 64 micro-s et WGM22 = 0
   TIMSK2 = 0b00000001;      // Interruption locale autorisée par TOIE2
   sei();                    // Active l'interruption global
 
@@ -613,13 +619,15 @@ float ratio;
 bool stopCuisson = false;
 float derivationFiltree = 0.0;
 // Routine d'interruption
+// période échantillonge 15 secondes
 ISR(TIMER2_OVF_vect) {
   //15625*16µs
   // on fait partir le timer de 6 pour qu'il compte 250 avant déborder
   // il déborde ainsi toutes les 4 ms
-  //TCNT2 = 256 - 250;               // Timer CoNTrole2 250 x 16 µS = 4 ms
-  TCNT2 = 256 - 125;               //125*16µs 2ms
-  if (varCompteurTimer++ > 125) {  // 62 * 4 ms = 248 ms //125* 4*s = 500ms
+  
+  TCNT2 = 256 - 125;               //125*8µs => débordement à 1ms
+ 
+  if (varCompteurTimer++ > 125) {  // 125* 1ms = 125ms
     varCompteurTimer = 0;
 
     if (compteurEchantillon++ >= nbEchantillons - 1) {
@@ -628,7 +636,6 @@ ISR(TIMER2_OVF_vect) {
       if (STATE != CUISSON_REFROISDISSEMENT && STATE != CUISSON_TERMINEE) {
         // calcul de la consigne
         consigne = calculeConsigne(pente, temperatureInitiale, temperatureFinale, dureePhase);
-
         // calcul de la commande
 
         // TODO adapter les coefficient en fonction de la commande possible (plus agressif au début)
