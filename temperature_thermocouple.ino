@@ -173,7 +173,7 @@ segment courbe[NB_TYPES][NB_PHASES] = {
   },
   {
     // consigne fixe
-    { 900, 900, 0, 10, false },  // 900 paramétrable
+    { 900, 900, 0, 10, true },  // 900 paramétrable
     { 0, 0, 0, 0, false },  // pas de chauffe
     { 0, 0, 0, 0, false },  // pas de chauffe
     { 0, 0, 0, 0, false },  // pas de chauffe
@@ -853,7 +853,7 @@ void checkMenu() {
   //  }
   // check if the menu option has changed
   if (menuChanged && previousBtn == btnNONE) {
-    //Serial.println(F("menu changed"));
+    Serial.println(F("menu changed"));
     menuChanged = false;
     menuEnCours = 1;
     // update the LCD to show the selected option
@@ -1061,6 +1061,9 @@ void loop() {
           Serial.print(F(";"));
         }
         if (STATE == CUISSON_EN_COURS) {
+          Serial.println(sizeof(courbe[0]) / (sizeof(courbe[0][0])));
+          Serial.println(sizeof(courbe[1]) / (sizeof(courbe[1][0])));
+          Serial.println(sizeof(courbe[2]) / (sizeof(courbe[2][0])));
           if (changePhase(consigne, temperatureMoyenne, phaseEnCours, dureePhase, tDecalePhase)) {
             tInit = timeInSecond;
             tDecalePhase = 0;
@@ -1068,6 +1071,7 @@ void loop() {
             //derivation = 0;
             //CorrectionP = 0;
             //integration = 0;
+             
             if (phaseEnCours >= NB_PHASES) {
               STATE = CUISSON_REFROISDISSEMENT;
               ETAT_MENU = STOP;
