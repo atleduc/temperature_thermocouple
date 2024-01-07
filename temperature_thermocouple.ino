@@ -1,8 +1,9 @@
 #include <LiquidCrystal.h>
 #include <Adafruit_MAX31856.h>
 #include <avr/interrupt.h>
-#define CUISSON_BISCUIT 0;
-#define CUISSON_EMAIL 1;
+const int CUISSON_BISCUIT = 0;
+const int CUISSON_EMAIL = 1;
+const int CUISSON_CONSIGNE_FIXE = 2;
 // Use software SPI: CS, DI, DO, CLK
 Adafruit_MAX31856 maxthermo = Adafruit_MAX31856(2, 11, 12, 13);
 // use hardware SPI, just pass in the CS pin
@@ -24,10 +25,12 @@ const byte CUISSON_TERMINEE = 4;
 // menus
 const byte MENU_INITIAL_1 = 0;
 const byte MENU_INITIAL_2 = 1;
+const byte CONSIGNE_FIXE = 2;
 
 const byte TEMP_EMAIL = 0;
 const byte TEMP_BISCUIT = 1;
-const byte LANCER_CUISSON_1 = 2;
+const byte TEMP_CONSIGNE_FIXE = 2;
+const byte LANCER_CUISSON_1 = 3;
 
 const byte EN_COURS = 0;
 const byte MENU_INTERRUPTION_1 = 1;
@@ -43,18 +46,21 @@ const byte ACTION_DOWN = 2;
 const byte ACTION_SELECT = 3;
 //const byte ACTION_NONE = 4;
 
-byte Menu[5][3][4][2];
+byte Menu[5][4][4][2];
 
-const char *MenuItems[][5][2] = {
+const char *MenuItems[][4][2] = {
+  // INITIAL
   // INITIAL
   {
     { ">Cuisson Biscuit", " Cuisson Email  " },
     { " Cuisson Biscuit", ">Cuisson Email  " },
+    { " Cuisson Email", ">Consigne fixe  " },
   },
   // CHOIX_TEMP
   {
     { "Temp Email   ", "+-" },
     { "Temp Biscuit   ", "+-" },
+    { "T Consigne Fixe", "+-" },
     { "DEPART CUISSON ?", "VALID = SELECT " },
   },
   // CUISSON_EN_COURS
@@ -139,10 +145,10 @@ float userDefinedMaxTemp = 1030;  // température paramétrable
 float pente;                      // pente de la courbe de chauffe
 float temperatureInitiale;        // T0 de la courbe de chauffe
 float temperatureFinale;          // T1 de la courbe de chauffe
-
+int seuil = 2;                    // °C seuil de tolérance température atteinte
 const int DEFAULT_TEMPERATURE_MAX_EMAIL = 950;
 const int DEFAULT_TEMPERATURE_MAX_BISCUIT = 910;
-const int NB_TYPES = 2;
+const int NB_TYPES = 3;
 const int NB_PHASES = 6;
 segment courbe[NB_TYPES][NB_PHASES] = {
   {
@@ -159,13 +165,22 @@ segment courbe[NB_TYPES][NB_PHASES] = {
     // cuisson email
     // pentes de chauffe en °C / heure
     { 0, 100, 100, 0, false },    // 0 à 100° à 100°C/heure
-    { 105, 105, 0, 10, false },   // 95 à 105° pendant 10 minutes
-    { 105, 400, 100, 0, false },  // 105 à 400° à 100°C/heure
+    { 100, 100, 0, 10, false },   // 95 à 105° pendant 10 minutes
+    { 100, 400, 100, 0, false },  // 105 à 400° à 100°C/heure
     { 400, 400, 0, 15, false },   // 400° pendant 15 min
     { 400, 1030, 150, 0, true },  // 400 à 1030° à 150°C/heure
     { 1030, 1030, 0, 30, true },  // 1030° pendant 30 min
   },
-
+  {
+    // consigne fixe
+    { 900, 900, 0, 10, false },  // 900 paramétrable
+    { 0, 0, 0, 0, false },  // pas de chauffe
+    { 0, 0, 0, 0, false },  // pas de chauffe
+    { 0, 0, 0, 0, false },  // pas de chauffe
+    { 0, 0, 0, 0, false },  // pas de chauffe
+    { 0, 0, 0, 0, false },  // pas de chauffe
+   
+  },
 };
 
 int phaseEnCours, typeCuisson;
@@ -200,7 +215,7 @@ float calculeConsigne(float pente, float tInit, float tEnd, float time) {
     return tEnd;
   }
   // phases cuisson
-  return pente * time / 3600 + temperatureInitiale;
+  return pente * time / 3600 + tInit;
 }
 
 float calculRatio(float commande) {
@@ -219,9 +234,10 @@ float calculRatio(float commande) {
  *  time : durée écoulée de la phase
  */
 boolean changePhase(float consigne, float mesure, int phase, float time, float &tDecalage) {
+  //Serial.println(typeCuisson);
   if (courbe[typeCuisson][phase].pente == 0) {
     // si on a pas atteint la temperature
-    if (mesure * 1.05 < courbe[typeCuisson][phase].t0) {
+    if ((mesure + seuil) < courbe[typeCuisson][phase].t0) {
       tDecalage = time;
       return false;
     }
@@ -231,7 +247,7 @@ boolean changePhase(float consigne, float mesure, int phase, float time, float &
     if (courbe[typeCuisson][phase].parametrable) {
       maxTemp = userDefinedMaxTemp;
     }
-    return maxTemp <= consigne;
+    return (maxTemp <= consigne) || ((mesure - seuil) > maxTemp);
   }
 }
 
@@ -247,10 +263,9 @@ void setPhaseParameters(int typeCuisson, int phase) {
   }
 
   temperatureFinale = courbe[typeCuisson][phase].t1;
-  if (courbe[typeCuisson][phase].parametrable && temperatureFinale > userDefinedMaxTemp) {
+  if (courbe[typeCuisson][phase].parametrable /*&& temperatureFinale > userDefinedMaxTemp*/) {
     temperatureFinale = userDefinedMaxTemp;  // cible si temp paramétrable
   }
-  // dureePhase
 }
 
 /* Affichage horloge */
@@ -428,10 +443,19 @@ void setupMenu() {
   Menu[INITIAL][MENU_INITIAL_2][ACTION_MENU][NEXT_STATE] = INITIAL;
   Menu[INITIAL][MENU_INITIAL_2][ACTION_UP][NEXT_MENU] = MENU_INITIAL_1;
   Menu[INITIAL][MENU_INITIAL_2][ACTION_UP][NEXT_STATE] = INITIAL;
-  Menu[INITIAL][MENU_INITIAL_2][ACTION_DOWN][NEXT_MENU] = MENU_INITIAL_2;
+  Menu[INITIAL][MENU_INITIAL_2][ACTION_DOWN][NEXT_MENU] = CONSIGNE_FIXE;
   Menu[INITIAL][MENU_INITIAL_2][ACTION_DOWN][NEXT_STATE] = INITIAL;
   Menu[INITIAL][MENU_INITIAL_2][ACTION_SELECT][NEXT_MENU] = TEMP_EMAIL;
   Menu[INITIAL][MENU_INITIAL_2][ACTION_SELECT][NEXT_STATE] = CHOIX_TEMP;
+
+  Menu[INITIAL][CONSIGNE_FIXE][ACTION_MENU][NEXT_MENU] = MENU_INITIAL_1;
+  Menu[INITIAL][CONSIGNE_FIXE][ACTION_MENU][NEXT_STATE] = INITIAL;
+  Menu[INITIAL][CONSIGNE_FIXE][ACTION_UP][NEXT_MENU] = MENU_INITIAL_2;
+  Menu[INITIAL][CONSIGNE_FIXE][ACTION_UP][NEXT_STATE] = INITIAL;
+  Menu[INITIAL][CONSIGNE_FIXE][ACTION_DOWN][NEXT_MENU] = CONSIGNE_FIXE;
+  Menu[INITIAL][CONSIGNE_FIXE][ACTION_DOWN][NEXT_STATE] = INITIAL;
+  Menu[INITIAL][CONSIGNE_FIXE][ACTION_SELECT][NEXT_MENU] = TEMP_CONSIGNE_FIXE;
+  Menu[INITIAL][CONSIGNE_FIXE][ACTION_SELECT][NEXT_STATE] = CHOIX_TEMP;
 
   Menu[CHOIX_TEMP][TEMP_EMAIL][ACTION_MENU][NEXT_MENU] = MENU_INITIAL_1;
   Menu[CHOIX_TEMP][TEMP_EMAIL][ACTION_MENU][NEXT_STATE] = INITIAL;
@@ -450,6 +474,15 @@ void setupMenu() {
   Menu[CHOIX_TEMP][TEMP_BISCUIT][ACTION_DOWN][NEXT_STATE] = CHOIX_TEMP;
   Menu[CHOIX_TEMP][TEMP_BISCUIT][ACTION_SELECT][NEXT_MENU] = LANCER_CUISSON_1;
   Menu[CHOIX_TEMP][TEMP_BISCUIT][ACTION_SELECT][NEXT_STATE] = CHOIX_TEMP;
+
+  Menu[CHOIX_TEMP][TEMP_CONSIGNE_FIXE][ACTION_MENU][NEXT_MENU] = MENU_INITIAL_1;
+  Menu[CHOIX_TEMP][TEMP_CONSIGNE_FIXE][ACTION_MENU][NEXT_STATE] = INITIAL;
+  Menu[CHOIX_TEMP][TEMP_CONSIGNE_FIXE][ACTION_UP][NEXT_MENU] = TEMP_CONSIGNE_FIXE;
+  Menu[CHOIX_TEMP][TEMP_CONSIGNE_FIXE][ACTION_UP][NEXT_STATE] = CHOIX_TEMP;
+  Menu[CHOIX_TEMP][TEMP_CONSIGNE_FIXE][ACTION_DOWN][NEXT_MENU] = TEMP_CONSIGNE_FIXE;
+  Menu[CHOIX_TEMP][TEMP_CONSIGNE_FIXE][ACTION_DOWN][NEXT_STATE] = CHOIX_TEMP;
+  Menu[CHOIX_TEMP][TEMP_CONSIGNE_FIXE][ACTION_SELECT][NEXT_MENU] = LANCER_CUISSON_1;
+  Menu[CHOIX_TEMP][TEMP_CONSIGNE_FIXE][ACTION_SELECT][NEXT_STATE] = CHOIX_TEMP;
 
   Menu[CHOIX_TEMP][LANCER_CUISSON_1][ACTION_MENU][NEXT_MENU] = MENU_INITIAL_1;
   Menu[CHOIX_TEMP][LANCER_CUISSON_1][ACTION_MENU][NEXT_STATE] = INITIAL;
@@ -549,24 +582,20 @@ void setup() {
   ETAT_MENU = MENU_INITIAL_1;
   STATE = INITIAL;
   setupMenu();
-
-
-
   Serial.begin(19200);
-
   // init du timer et des interruptions
   cli();                    // Désactive l'interruption globale
   bitClear(TCCR2A, WGM20);  // WGM20 = 0
   bitClear(TCCR2A, WGM21);  // WGM21 = 0
-  //TCCR2B = 0b00000001;      // Clock 
+  //TCCR2B = 0b00000001;      // Clock
   //TCCR2B = 0b00000010;      // Clock / 8 soit 0.5 micro-s et WGM22 = 0
   //TCCR2B = 0b00000011;      // Clock / 32 soit 2 micro-s et WGM22 = 0
   //TCCR2B = 0b00000100;      // Clock / 64 soit 4 micro-s et WGM22 = 0
-  TCCR2B = 0b00000101;      // Clock / 128 soit 4 micro-s et WGM22 = 0
+  TCCR2B = 0b00000101;  // Clock / 128 soit 4 micro-s et WGM22 = 0
   //TCCR2B = 0b00000110;      // Clock / 256 soit 16 micro-s et WGM22 = 0
   //TCCR2B = 0b00000111;      // Clock / 1024 soit 64 micro-s et WGM22 = 0
-  TIMSK2 = 0b00000001;      // Interruption locale autorisée par TOIE2
-  sei();                    // Active l'interruption global
+  TIMSK2 = 0b00000001;  // Interruption locale autorisée par TOIE2
+  sei();                // Active l'interruption global
 
 
   //init LCD
@@ -621,12 +650,9 @@ float derivationFiltree = 0.0;
 // Routine d'interruption
 // période échantillonge 15 secondes
 ISR(TIMER2_OVF_vect) {
-  //15625*16µs
-  // on fait partir le timer de 6 pour qu'il compte 250 avant déborder
-  // il déborde ainsi toutes les 4 ms
-  
-  TCNT2 = 256 - 125;               //125*8µs => débordement à 1ms
- 
+
+  TCNT2 = 256 - 125;  //125*8µs => débordement à 1ms
+
   if (varCompteurTimer++ > 125) {  // 125* 1ms = 125ms
     varCompteurTimer = 0;
 
@@ -707,22 +733,78 @@ void debugState(byte state, byte menu) {
   switch (state) {
     case INITIAL:
       Serial.println(F("State: INITIAL"));
+      switch (menu) {
+        case MENU_INITIAL_1:
+          Serial.println(F("Menu: MENU_INITIAL_1"));
+          break;
+        case MENU_INITIAL_2:
+          Serial.println(F("Menu: MENU_INITIAL_2"));
+          break;
+        case CONSIGNE_FIXE:
+          Serial.println(F("Menu: CONSIGNE_FIXE"));
+          break;
+      }
       break;
     case CHOIX_TEMP:
       Serial.println(F("State: CHOIX_TEMP"));
+      switch (menu) {
+        case TEMP_EMAIL:
+          Serial.println(F("Menu: TEMP_EMAIL"));
+          break;
+        case TEMP_BISCUIT:
+          Serial.println(F("Menu: TEMP_BISCUIT"));
+          break;
+        case TEMP_CONSIGNE_FIXE:
+          Serial.println(F("Menu: TEMP_CONSIGNE_FIXE"));
+          break;
+        case LANCER_CUISSON_1:
+          Serial.println(F("Menu: LANCER_CUISSON_1"));
+          break;
+      }
       break;
     case CUISSON_EN_COURS:
       Serial.println(F("State: CUISSON_EN_COURS"));
+      switch (menu) {
+        case EN_COURS:
+          Serial.println(F("Menu: EN_COURS"));
+          break;
+        case MENU_INTERRUPTION_1:
+          Serial.println(F("Menu: MENU_INTERRUPTION_1"));
+          break;
+        case MENU_INTERRUPTION_2:
+          Serial.println(F("Menu: MENU_INTERRUPTION_2"));
+          break;
+      }
       break;
     case CUISSON_REFROISDISSEMENT:
       Serial.println(F("State: CUISSON_REFROISDISSEMENT"));
+      switch (menu) {
+        case STOP:
+          Serial.println(F("Menu: STOP"));
+          break;
+        case MENU_REPRENDRE_1:
+          Serial.println(F("Menu: MENU_REPRENDRE_1"));
+          break;
+        case MENU_REPRENDRE_2:
+          Serial.println(F("Menu: MENU_REPRENDRE_2"));
+          break;
+      }
       break;
     case CUISSON_TERMINEE:
       Serial.println(F("State: CUISSON_TERMINEE"));
+      switch (menu) {
+        case STOP:
+          Serial.println(F("Menu: STOP"));
+          break;
+        case MENU_REPRENDRE_1:
+          Serial.println(F("Menu: MENU_REPRENDRE_1"));
+          break;
+        case MENU_REPRENDRE_2:
+          Serial.println(F("Menu: MENU_REPRENDRE_2"));
+          break;
+      }
       break;
   }
-  Serial.print(F("ETAT_MENU "));
-  Serial.println(menu);
 }
 /**
 * 
@@ -782,20 +864,31 @@ void checkMenu() {
       case ACTION_SELECT:
         previous_state = STATE;
         previous_menu = ETAT_MENU;
-        ETAT_MENU = Menu[previous_state][previous_menu][ACTION_SELECT][NEXT_MENU];
-        STATE = Menu[previous_state][previous_menu][ACTION_SELECT][NEXT_STATE];
-         debugState(STATE, ETAT_MENU);
-        if (ETAT_MENU == TEMP_EMAIL) {
-          typeCuisson = CUISSON_EMAIL;
-          userDefinedMaxTemp = DEFAULT_TEMPERATURE_MAX_EMAIL;
-        } else if (ETAT_MENU == TEMP_BISCUIT) {
-          typeCuisson = CUISSON_BISCUIT;
-          userDefinedMaxTemp = DEFAULT_TEMPERATURE_MAX_BISCUIT;
-        }
+        ETAT_MENU = Menu[STATE][ETAT_MENU][ACTION_SELECT][NEXT_MENU];
+        STATE = Menu[STATE][previous_menu][ACTION_SELECT][NEXT_STATE];
+        debugState(STATE, ETAT_MENU);
+
         switch (STATE) {
+          case CHOIX_TEMP:
+            switch(ETAT_MENU) {
+              case TEMP_EMAIL:
+                typeCuisson = CUISSON_EMAIL;
+                userDefinedMaxTemp = DEFAULT_TEMPERATURE_MAX_EMAIL;
+                break;
+              case TEMP_BISCUIT:
+                typeCuisson = CUISSON_BISCUIT;
+                userDefinedMaxTemp = DEFAULT_TEMPERATURE_MAX_BISCUIT;
+                break;
+              case TEMP_CONSIGNE_FIXE:
+                typeCuisson = CUISSON_CONSIGNE_FIXE;
+                userDefinedMaxTemp = DEFAULT_TEMPERATURE_MAX_BISCUIT;
+                break;                
+            }
           case CUISSON_EN_COURS:
             stopCuisson = false;
-            if(previous_state == CHOIX_TEMP && previous_menu == LANCER_CUISSON_1) {
+            if (previous_state == CHOIX_TEMP && previous_menu == LANCER_CUISSON_1) {
+              Serial.print("typeCuisson ");
+              Serial.println(typeCuisson);
               setPhaseParameters(typeCuisson, phaseEnCours);
               tInit = millis() / TSec;
             }
@@ -809,36 +902,31 @@ void checkMenu() {
         break;
       case ACTION_DOWN:
         //Serial.println(F("Down"));
-        previous_state = STATE;
         previous_menu = ETAT_MENU;
-        // debugState(STATE, ETAT_MENU);
-        ETAT_MENU = Menu[previous_state][previous_menu][ACTION_DOWN][NEXT_MENU];
-        STATE = Menu[previous_state][previous_menu][ACTION_DOWN][NEXT_STATE];
-        // debugState(STATE, ETAT_MENU);
+        ETAT_MENU = Menu[STATE][ETAT_MENU][ACTION_DOWN][NEXT_MENU];
+        STATE = Menu[STATE][previous_menu][ACTION_DOWN][NEXT_STATE];
         switch (ETAT_MENU) {
           case TEMP_BISCUIT:
           case TEMP_EMAIL:
+          case TEMP_CONSIGNE_FIXE:
             if (userDefinedMaxTemp > 700) userDefinedMaxTemp -= 10;
         }
         break;
       case ACTION_UP:
-        previous_state = STATE;
         previous_menu = ETAT_MENU;
-        ETAT_MENU = Menu[previous_state][previous_menu][ACTION_UP][NEXT_MENU];
-        STATE = Menu[previous_state][previous_menu][ACTION_UP][NEXT_STATE];
-        // debugState(STATE, ETAT_MENU);
+        ETAT_MENU = Menu[STATE][ETAT_MENU][ACTION_UP][NEXT_MENU];
+        STATE = Menu[STATE][previous_menu][ACTION_UP][NEXT_STATE];
         switch (ETAT_MENU) {
           case TEMP_BISCUIT:
           case TEMP_EMAIL:
+          case TEMP_CONSIGNE_FIXE:
             if (userDefinedMaxTemp < 1100) userDefinedMaxTemp += 10;
         }
         break;
       case ACTION_MENU:
-        previous_state = STATE;
         previous_menu = ETAT_MENU;
-        ETAT_MENU = Menu[previous_state][previous_menu][ACTION_MENU][NEXT_MENU];
-        STATE = Menu[previous_state][previous_menu][ACTION_MENU][NEXT_STATE];
-        // debugState(STATE, ETAT_MENU);
+        ETAT_MENU = Menu[STATE][ETAT_MENU][ACTION_MENU][NEXT_MENU];
+        STATE = Menu[STATE][previous_menu][ACTION_MENU][NEXT_STATE];
         break;
     }
   }
@@ -991,7 +1079,7 @@ void loop() {
       } else {
         lcd.clear();
         displayTemperature(temperatureMoyenne, consigne);
-        if(temperatureMoyenne >= 100) {
+        if (temperatureMoyenne >= 100) {
           STATE = CUISSON_REFROISDISSEMENT;
           lcd.setCursor(0, 1);
           lcd.print(F("Refroisissement "));
@@ -1000,7 +1088,7 @@ void loop() {
           lcd.setCursor(0, 1);
           lcd.print(F("Cuisson terminee"));
         }
-        
+
         ratio = 0;
         if (cycleTermine == true) {
           cycleTermine = false;
