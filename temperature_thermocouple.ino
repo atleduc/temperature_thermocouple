@@ -1,6 +1,8 @@
 #include <LiquidCrystal.h>
 #include <Adafruit_MAX31856.h>
 #include <avr/interrupt.h>
+#define VERSION "V1.0.0"
+const int PUISSANCE_FOUR = 1250;
 const int CUISSON_BISCUIT = 0;
 const int CUISSON_EMAIL = 1;
 const int CUISSON_CONSIGNE_FIXE = 2;
@@ -52,16 +54,16 @@ const char *MenuItems[][4][2] = {
   // INITIAL
   // INITIAL
   {
-    { ">Cuisson Biscuit", " Cuisson Email  " },
-    { " Cuisson Biscuit", ">Cuisson Email  " },
-    { " Cuisson Email", ">Consigne fixe  " },
+    { ">Biscuit", " Email  " },
+    { " Biscuit", ">Email  " },
+    { " Email", ">Consigne fixe  " },
   },
   // CHOIX_TEMP
   {
     { "Temp Email   ", "+-" },
     { "Temp Biscuit   ", "+-" },
     { "T Consigne Fixe", "+-" },
-    { "DEPART CUISSON ?", "VALID = SELECT " },
+    { "Depart Cuisson ?", "" },
   },
   // CUISSON_EN_COURS
   {
@@ -107,6 +109,7 @@ unsigned long Num_ms, Num_sec, Num_min;
 unsigned long Num_heur, Num_jour, Temps_ms;
 unsigned long timeInSecond;
 
+float consommation = 0;
 // constantes de correction établies par étude de la réponse indicielle
 // retard apparent : t1 = 459.831 secondes
 // a = 86.68 °C
@@ -148,6 +151,7 @@ float temperatureFinale;          // T1 de la courbe de chauffe
 int seuil = 2;                    // °C seuil de tolérance température atteinte
 const int DEFAULT_TEMPERATURE_MAX_EMAIL = 950;
 const int DEFAULT_TEMPERATURE_MAX_BISCUIT = 910;
+const int DEFAULT_TEMPERATURE_MAX_CUSTOM = 1100;
 const int NB_TYPES = 3;
 const int NB_PHASES = 6;
 segment courbe[NB_TYPES][NB_PHASES] = {
@@ -311,7 +315,6 @@ void displayPhase(int phase, unsigned long duree) {
 }
 /* affichage de la température */
 void displayTemperature(float temp, float consigne) {
-
   lcd.setCursor(0, 0);
   lcd.print(temp);
   lcd.write((byte)0);
@@ -327,6 +330,15 @@ void displayGoal(float temp, float goal) {
   lcd.print("->");
   lcd.print((int)goal);
   lcd.write((byte)0);
+}
+void displayEnd(float temp) {
+  lcd.setCursor(0, 0);
+  lcd.print(temp);
+  lcd.write((byte)0);
+  lcd.setCursor(0, 1);
+  lcd.print("Conso: ");
+  lcd.print(consommation * PUISSANCE_FOUR / 3600);
+  lcd.print(" Wh");
 }
 
 /*
@@ -603,10 +615,10 @@ void setup() {
   lcd.createChar(0, degre);
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("Initialisation");
+  lcd.print("Version");
   lcd.setCursor(0, 1);
-  lcd.print("en cours...");
-
+  lcd.print(VERSION);
+  delay(1000);
   if (!maxthermo.begin()) {
     Serial.println("Could not initialize thermocouple.");
     while (1) delay(10);
@@ -653,7 +665,7 @@ ISR(TIMER2_OVF_vect) {
 
   TCNT2 = 256 - 125;  //125*8µs => débordement à 1ms
 
-  if (varCompteurTimer++ > 125) {  // 125* 1ms = 125ms
+  if (varCompteurTimer++ >= 125) {  // 125* 1ms = 125ms
     varCompteurTimer = 0;
 
     if (compteurEchantillon++ >= nbEchantillons - 1) {
@@ -711,7 +723,8 @@ ISR(TIMER2_OVF_vect) {
     switch (STATE) {
       case CUISSON_EN_COURS:
         // start with 0 to avoid wrong temperature measure
-        if (compteurEchantillon > (nbEchantillons - ratio)) {
+        if (compteurEchantillon >= (nbEchantillons - ratio)) {
+          consommation += dt;
           digitalWrite(L1, HIGH);
         } else {
           digitalWrite(L1, LOW);
@@ -881,14 +894,12 @@ void checkMenu() {
                 break;
               case TEMP_CONSIGNE_FIXE:
                 typeCuisson = CUISSON_CONSIGNE_FIXE;
-                userDefinedMaxTemp = DEFAULT_TEMPERATURE_MAX_BISCUIT;
+                userDefinedMaxTemp = DEFAULT_TEMPERATURE_MAX_CUSTOM;
                 break;                
             }
           case CUISSON_EN_COURS:
             stopCuisson = false;
             if (previous_state == CHOIX_TEMP && previous_menu == LANCER_CUISSON_1) {
-              Serial.print("typeCuisson ");
-              Serial.println(typeCuisson);
               setPhaseParameters(typeCuisson, phaseEnCours);
               tInit = millis() / TSec;
             }
@@ -1061,9 +1072,6 @@ void loop() {
           Serial.print(F(";"));
         }
         if (STATE == CUISSON_EN_COURS) {
-          Serial.println(sizeof(courbe[0]) / (sizeof(courbe[0][0])));
-          Serial.println(sizeof(courbe[1]) / (sizeof(courbe[1][0])));
-          Serial.println(sizeof(courbe[2]) / (sizeof(courbe[2][0])));
           if (changePhase(consigne, temperatureMoyenne, phaseEnCours, dureePhase, tDecalePhase)) {
             tInit = timeInSecond;
             tDecalePhase = 0;
@@ -1081,16 +1089,15 @@ void loop() {
           }
         }
       } else {
-        lcd.clear();
-        displayTemperature(temperatureMoyenne, consigne);
+        lcd.clear();       
         if (temperatureMoyenne >= 100) {
           STATE = CUISSON_REFROISDISSEMENT;
+          displayTemperature(temperatureMoyenne, consigne);
           lcd.setCursor(0, 1);
           lcd.print(F("Refroisissement "));
         } else {
           STATE = CUISSON_TERMINEE;
-          lcd.setCursor(0, 1);
-          lcd.print(F("Cuisson terminee"));
+          displayEnd(temperatureMoyenne);
         }
 
         ratio = 0;
