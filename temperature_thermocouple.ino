@@ -239,15 +239,20 @@ float calculRatio(float commande) {
  */
 boolean changePhase(float consigne, float mesure, int phase, float time, float &tDecalage) {
   //Serial.println(typeCuisson);
+  float maxTemp;
   if (courbe[typeCuisson][phase].pente == 0) {
     // si on a pas atteint la temperature
-    if ((mesure + seuil) < courbe[typeCuisson][phase].t0) {
+    maxTemp = courbe[typeCuisson][phase].t0;
+    if (courbe[typeCuisson][phase].parametrable) {
+      maxTemp = userDefinedMaxTemp;
+    }
+    if ((mesure + seuil) < maxTemp) {
       tDecalage = time;
       return false;
     }
     return time - tDecalage > courbe[typeCuisson][phase].duree * 60;
   } else {
-    float maxTemp = courbe[typeCuisson][phase].t1;
+    maxTemp = courbe[typeCuisson][phase].t1;
     if (courbe[typeCuisson][phase].parametrable) {
       maxTemp = userDefinedMaxTemp;
     }
